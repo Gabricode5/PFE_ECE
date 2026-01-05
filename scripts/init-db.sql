@@ -1,10 +1,19 @@
--- Active l'extension pour l'IA
+-- Active l'extension pour les recherches de similarité
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- Crée la table pour stocker tes documents et leurs "sens" (embeddings)
+-- Table pour stocker les connaissances (FAQ, Guides)
 CREATE TABLE IF NOT EXISTS knowledge_base (
     id SERIAL PRIMARY KEY,
     title TEXT,
     content TEXT,
-    embedding vector(768) -- 768 est la taille du modèle nomic-embed-text
+    embedding vector(768) -- Taille spécifique pour nomic-embed-text
+);
+
+-- Table simple pour les tickets
+CREATE TABLE IF NOT EXISTS tickets (
+    id SERIAL PRIMARY KEY,
+    subject TEXT,
+    description TEXT,
+    status TEXT DEFAULT 'open',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
