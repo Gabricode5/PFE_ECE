@@ -1,0 +1,91 @@
+# docker-compose.yml - À LA RACINE du projet
+version: '3.8'
+
+services:
+  # 1. OLLAMA - Service IA
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ticket-ai-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/root/.ollama
+      - ./ollama/entrypoint.sh:/entrypoint.sh # Liaison du script
+    entrypoint: ["/bin/bash", "/entrypoint.sh"] # Exécution au démarrage
+    restart: unless-stopped
+  
+  # 2. POSTGRESQL avec pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ticket-ai-postgres
+    environment:
+      POSTGRES_DB: ticketdb
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: Password1234
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+  
+  # 3. REDIS pour le cache
+  redis:
+    image: redis:7-alpine
+    container_name: ticket-ai-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    restart: unless-stopped
+  
+  # 4. BACKEND (FastAPI/Node.js)
+  backend:
+    build: ./backend
+    container_name: ticket-ai-backend
+    ports:
+      - "8000:8000"  # API Backend
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - DATABASE_URL=postgresql://admin:changeme123@postgres/ticketdb
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./backend:/app
+    depends_on:
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+    restart: unless-stopped
+  
+  # 5. FRONTEND (React/Vue)
+  frontend:
+    build: ./frontend
+    container_name: ticket-ai-frontend
+    ports:
+      - "3000:3000"  # Frontend Client
+    depends_on:
+      - backend
+    restart: unless-stopped
+  
+  # 6. ADMIN INTERFACE
+  admin:
+    build: ./frontend-admin
+    container_name: ticket-ai-admin
+    ports:
+      - "3001:3000"  # Interface Admin
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  postgres_data:
+  redis_data:
+
+# Réseau interne pour communication
+networks:
+  ticket-ai-network:
+    driver: bridge
