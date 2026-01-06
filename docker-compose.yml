@@ -52,12 +52,9 @@ services:
     volumes:
       - ./backend:/app
     depends_on:
-      ollama:
-        condition: service_healthy
-      postgres:
-        condition: service_started
-      redis:
-        condition: service_started
+      - ollama
+      - postgres
+      - redis
     restart: unless-stopped
   
   # 5. FRONTEND (React/Vue)
