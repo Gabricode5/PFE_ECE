@@ -38,6 +38,27 @@ services:
     volumes:
       - ./data/redis:/data
     restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: ticket-ai-pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    ports:
+      - "5050:80"
+    restart: unless-stopped
+
+  ollama-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: ticket-ai-webui
+    ports:
+      - "3002:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - open-webui:/app/backend/data
+    restart: unless-stopped
   
   # 4. BACKEND (FastAPI/Node.js)
   backend:
@@ -47,7 +68,7 @@ services:
       - "8000:8000"  # API Backend
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - DATABASE_URL=postgresql://admin:changeme123@postgres/ticketdb
+      - DATABASE_URL=postgresql://admin:Password1234@postgres/ticketdb
       - REDIS_URL=redis://redis:6379
     volumes:
       - ./backend:/app
@@ -81,6 +102,7 @@ volumes:
   ollama_data:
   postgres_data:
   redis_data:
+  open-webui:
 
 # Réseau interne pour communication
 networks:
