@@ -13,3 +13,8 @@ docker compose down -v
 docker compose up -d --build
 # Liste des modeles telecharges (mistral-small, nomic-embed-text)
 docker exec -it ticket-ai-ollama ollama list
+
+
+# pour récupérer des fichiers de d'autre branche
+git checkout frontend
+git checkout master -- .gitignore
