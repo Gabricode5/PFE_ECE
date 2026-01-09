@@ -1,7 +1,15 @@
+#Serveur et Framework
 fastapi
 uvicorn
-requests
+python-multipart
+
+#Base de données
 psycopg2-binary
 sqlalchemy
 pgvector
-python-multipart
+
+#Communication et IA
+requests
+ollama
+
+

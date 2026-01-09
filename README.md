@@ -1,3 +1,7 @@
+# Démarrer le service
+sudo systemctl start docker
+# Activer le démarrage automatique au boot
+sudo systemctl enable docker
 # Lancement en mode arriere-plan
 docker compose up -d
 # Lancement avec affichage des logs en direct
