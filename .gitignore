@@ -38,3 +38,16 @@ venv/
 .idea/
 *.swp
 *.swo
+
+# Docker data & volumes
+data/
+ollama/
+.docker/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environnement virtuel
+venv/
+.env
