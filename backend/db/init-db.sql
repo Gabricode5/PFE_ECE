@@ -21,7 +21,7 @@ CREATE TABLE chat_sessions (
 CREATE TABLE chat_messages (
     id SERIAL PRIMARY KEY,
     id_session INTEGER REFERENCES chat_sessions(id) ON DELETE CASCADE,
-    type_envoyeur VARCHAR(10) CHECK (type_envoyeur IN ('user', 'ai')),
+    type_envoyeur VARCHAR(10) CHECK (type_envoyeur IN ('user', 'ai', 'sav')),
     contenu TEXT NOT NULL,
     date_creation TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
