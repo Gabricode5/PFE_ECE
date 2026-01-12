@@ -5,3 +5,5 @@ psycopg2-binary
 sqlalchemy
 pgvector
 python-multipart
+passlib[bcrypt]
+python-jose[cryptography]

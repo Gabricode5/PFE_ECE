@@ -1,3 +1,5 @@
+#C'est la structure des données qui circulent (la validation Pydantic).
+
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from typing import Optional
