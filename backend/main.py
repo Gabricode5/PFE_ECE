@@ -11,10 +11,14 @@ from database import engine, get_db
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer
+from dotenv import load_dotenv
 
-SECRET_KEY = "OssAtjqQi_ZpEOU3Hwmr27KhjfJ0FPEDquAKV1iyEzw"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+load_dotenv()  # Charger les variables d'environnement depuis le fichier .env
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

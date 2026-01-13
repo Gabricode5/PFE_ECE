@@ -8,3 +8,6 @@ python-multipart
 passlib[bcrypt]
 python-jose[cryptography]
 email-validator>=2.0.0
+
+#pour lire les variables dans le .env
+python-dotenv
