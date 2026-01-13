@@ -7,12 +7,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import {
     LayoutDashboard,
-    MessageSquare,
-    Users,
     BookOpen,
     Bot,
     BarChart2,
-    Settings,
     LogOut
 } from "lucide-react"
 
@@ -20,7 +17,10 @@ export function AppSidebar() {
     const pathname = usePathname()
 
     const isActive = (path: string) => {
-        return pathname === path
+        if (path === "/") {
+            return pathname === "/"
+        }
+        return pathname?.startsWith(path)
     }
 
     const handleLogout = () => {
@@ -60,32 +60,6 @@ export function AppSidebar() {
                             <Link href="/">
                                 <LayoutDashboard className="mr-3 h-4 w-4" />
                                 Tableau de bord
-                            </Link>
-                        </Button>
-                        <Button
-                            variant={isActive("/conversations") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/conversations") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/conversations">
-                                <MessageSquare className="mr-3 h-4 w-4" />
-                                Conversations
-                            </Link>
-                        </Button>
-                        <Button
-                            variant={isActive("/clients") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/clients") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/clients">
-                                <Users className="mr-3 h-4 w-4" />
-                                Clients
                             </Link>
                         </Button>
                         <Button
@@ -134,19 +108,6 @@ export function AppSidebar() {
                             <Link href="/analytics">
                                 <BarChart2 className="mr-3 h-4 w-4" />
                                 Analytique
-                            </Link>
-                        </Button>
-                        <Button
-                            variant={isActive("/configuration") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/configuration") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/configuration">
-                                <Settings className="mr-3 h-4 w-4" />
-                                Configuration
                             </Link>
                         </Button>
                     </div>
