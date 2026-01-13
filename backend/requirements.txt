@@ -7,9 +7,4 @@ python-multipart
 psycopg2-binary
 sqlalchemy
 pgvector
-
-#Communication et IA
-requests
-ollama
-
-
+python-multipart
