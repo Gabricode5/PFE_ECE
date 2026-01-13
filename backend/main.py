@@ -54,7 +54,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 def read_root():
     return {"status": "Online", "message": "Le gestionnaire de tickets est prêt"}
 
-@app.post("/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
+@app.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     """
     Route pour inscrire un nouvel utilisateur.
@@ -85,7 +85,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return new_user
 
 @app.post("/login")
-def login(user_credentials: schemas.UserCreate, db: Session = Depends(get_db)):
+def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     # 1. On cherche l'utilisateur dans la base par son email
     user = db.query(models.Utilisateur).filter(models.Utilisateur.email == user_credentials.email).first()
     
