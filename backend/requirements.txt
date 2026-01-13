@@ -1,10 +1,9 @@
-#Serveur et Framework
 fastapi
 uvicorn
-python-multipart
-
-#Base de données
+requests
 psycopg2-binary
 sqlalchemy
 pgvector
 python-multipart
+passlib[bcrypt]
+python-jose[cryptography]
