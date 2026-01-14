@@ -18,3 +18,6 @@ docker exec -it ticket-ai-ollama ollama list
 # pour récupérer des fichiers de d'autre branche
 git checkout frontend
 git checkout master -- .gitignore
+
+
+utiliser un github action + rcd pour mise en prod sur azure
