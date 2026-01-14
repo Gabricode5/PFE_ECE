@@ -84,7 +84,7 @@ services:
     build: ./frontend
     container_name: ticket-ai-frontend
     ports:
-      - "3000:3005"  # Frontend Client
+      - "3005:3005"  # On lie le port 3005 de votre PC au port 3005 du conteneur
     depends_on:
       - backend
     restart: unless-stopped
