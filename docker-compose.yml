@@ -84,7 +84,7 @@ services:
     build: ./frontend
     container_name: ticket-ai-frontend
     ports:
-      - "3000:3000"  # Frontend Client
+      - "3005:3000"  # Frontend Client
     depends_on:
       - backend
     restart: unless-stopped
