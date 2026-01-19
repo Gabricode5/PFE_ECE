@@ -86,7 +86,15 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user) # Récupère l'ID généré par Postgres
 
-    return new_user
+    return {
+        "id": new_user.id,
+        "username": new_user.username,
+        "email": new_user.email,
+        "prenom": new_user.prenom,
+        "nom": new_user.nom,
+        "role": user.role, # On reprend le texte "user" envoyé par le front
+        "date_creation": new_user.date_creation
+    }
 
 @app.post("/login")
 def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
