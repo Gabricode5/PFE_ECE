@@ -28,3 +28,12 @@ Backend API : http://localhost:8000 / http://localhost:8000/docs L'API FastAPI/N
 Open WebUI : http://localhost:3002  L'interface pour tester Ollama directement.
 pgAdmin : http://localhost:5050  Login: admin@admin.com / Pass: admin.
 Ollama : http://localhost:11434/
+
+
+#connexion de la bdd à postgre
+- Name : ce que vous voulez
+- Host name/address : postgres
+- Port : 5432
+- Maintenance database : ticketdb
+- Username : admin
+- Password : Password1234
