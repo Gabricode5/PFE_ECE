@@ -11,7 +11,10 @@ class UserCreate(BaseModel):
     password: str
     prenom: Optional[str] = None
     nom: Optional[str] = None
-    role: Optional[str] = "user"
+    id_role: int
+
+    class Config:
+        from_attributes = True
 
 # Modèle pour la réponse (ce que l'API renvoie, sans le mot de passe !)
 class UserResponse(BaseModel):
