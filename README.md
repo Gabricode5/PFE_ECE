@@ -21,3 +21,10 @@ git checkout master -- .gitignore
 
 
 utiliser un github action + rcd pour mise en prod sur azure
+
+#liens d'accès
+Frontend : http://localhost:3005  L'interface utilisateur de votre projet.
+Backend API : http://localhost:8000 / http://localhost:8000/docs L'API FastAPI/Node (docs souvent sur /docs).
+Open WebUI : http://localhost:3002  L'interface pour tester Ollama directement.
+pgAdmin : http://localhost:5050  Login: admin@admin.com / Pass: admin.
+Ollama : http://localhost:11434/
