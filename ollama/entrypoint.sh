@@ -1,18 +1,17 @@
 #!/bin/bash
 
-# Lancer le serveur Ollama en arrière-plan
+# 1. Lancer le serveur Ollama en arrière-plan
 ollama serve &
 
-# Attendre que le service soit prêt
-echo "Attente du serveur Ollama..."
-while ! curl -s http://localhost:11434/api/tags > /dev/null; do
-    sleep 2
-done
+# 2. Attendre que le serveur démarre (pause de 5 secondes au lieu de curl)
+echo "Attente du démarrage d'Ollama (5s)..."
+sleep 5
 
-# Télécharger le modèle léger pour ta RTX 3050
+# 3. Pull le modèle
 echo "Téléchargement du modèle llama3.2:1b..."
 ollama pull llama3.2:1b
 
-echo "Installation terminée !"
-# Garder le processus au premier plan
+echo "Installation terminée et modèle prêt !"
+
+# 4. Maintenir le processus actif
 wait
