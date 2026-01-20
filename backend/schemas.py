@@ -12,7 +12,6 @@ class UserCreate(BaseModel):
     prenom: Optional[str] = None
     nom: Optional[str] = None
     id_role: int
-    date_creation: datetime
 
     class Config:
         from_attributes = True
@@ -25,7 +24,6 @@ class UserResponse(BaseModel):
     prenom: Optional[str]
     nom: Optional[str]
     role: str
-    date_creation: datetime
 
     class Config:
         from_attributes = True

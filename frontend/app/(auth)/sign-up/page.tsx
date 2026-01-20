@@ -34,7 +34,7 @@ export default function SignUpPage() {
             password: data.password,
             prenom: data.prenom,
             nom: data.nom,
-            role: "user" // Role par défaut
+            id_role: 1, // Valeur par défaut pour id_role
         }
 
         try {
