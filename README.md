@@ -19,6 +19,9 @@ docker exec -it ticket-ai-ollama ollama list
 git checkout frontend
 git checkout master -- .gitignore
 
+# pour récupérer toute une branche
+git merge backend
+
 
 utiliser un github action + rcd pour mise en prod sur azure
 
