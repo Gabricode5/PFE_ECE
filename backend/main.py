@@ -90,6 +90,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
+    role_name = db.query(models.Role.nom_role).filter(models.Role.id == new_user.id_role).scalar() or "user"
     # 5. Retourner la réponse (doit correspondre à schemas.UserResponse)
     return {
         "id": new_user.id,
@@ -97,7 +98,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         "email": new_user.email,
         "prenom": new_user.prenom,
         "nom": new_user.nom,
-        "role": "user" if new_user.id_role == 1 else "admin", # On transforme l'ID en texte pour le front
+        "role": role_name, # On transforme l'ID en texte pour le front
         "date_creation": new_user.date_creation
     }
 
