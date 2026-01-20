@@ -68,23 +68,23 @@ export default function SignUpPage() {
                 <CardContent className="space-y-4">
                     <div className="space-y-2">
                         <Label htmlFor="username">Nom d'utilisateur</Label>
-                        <Input id="username" placeholder="nom_d_utilisateur" required />
+                        <Input id="username" name="username" placeholder="nom_d_utilisateur" required />
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="email">Email</Label>
-                        <Input id="email" type="email" placeholder="email@exemple.com" required />
+                        <Input id="email" name="email" type="email" placeholder="email@exemple.com" required />
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="password">Mot de passe</Label>
-                        <Input id="password" type="password" required />
+                        <Input id="password" name="password" type="password" required />
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="prenom">Prénom</Label>
-                        <Input id="prenom" placeholder="Jean" required />
+                        <Input id="prenom" name="prenom" placeholder="Jean" required />
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="name">Nom</Label>
-                        <Input id="name" placeholder="Dupont" required />
+                        <Input id="name" name="nom" placeholder="Dupont" required />
                     </div>
                     <Button type="submit" className="w-full">
                         S&apos;inscrire
