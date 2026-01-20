@@ -25,7 +25,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # En développement, on autorise tout
+    allow_origins=["http://localhost:3005"], # En développement, on autorise tout
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -66,39 +67,37 @@ def read_root():
 
 @app.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    """
-    Route pour inscrire un nouvel utilisateur.
-    """
-    # 1. Vérifier si l'email existe déjà dans la table 'utilisateur'
+    # 1. Vérifier si l'email existe déjà
     existing_user = db.query(models.Utilisateur).filter(models.Utilisateur.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Cet email est déjà utilisé.")
 
-    # 2. Hacher le mot de passe (Sécurité obligatoire)
+    # 2. Hacher le mot de passe
     hashed_password = pwd_context.hash(user.password)
 
-    # 3. Créer l'objet Utilisateur (id_role = 1 pour 'user')
+    # 3. Créer l'objet Utilisateur (on utilise user.id_role qui vient du schéma)
     new_user = models.Utilisateur(
         username=user.username,
         email=user.email,
         password_hash=hashed_password,
         prenom=user.prenom,
         nom=user.nom,
-        id_role=1 
+        id_role=user.id_role  # Utilise la valeur du schéma (ex: 1)
     )
 
-    # 4. Ajouter et valider dans la base de données
+    # 4. Sauvegarde
     db.add(new_user)
     db.commit()
-    db.refresh(new_user) # Récupère l'ID généré par Postgres
+    db.refresh(new_user)
 
+    # 5. Retourner la réponse (doit correspondre à schemas.UserResponse)
     return {
         "id": new_user.id,
         "username": new_user.username,
         "email": new_user.email,
         "prenom": new_user.prenom,
         "nom": new_user.nom,
-        "role": user.role, # On reprend le texte "user" envoyé par le front
+        "role": "user" if new_user.id_role == 1 else "admin", # On transforme l'ID en texte pour le front
         "date_creation": new_user.date_creation
     }
 
