@@ -12,14 +12,9 @@ from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()  # Charger les variables d'environnement depuis le fichier .env
-
-SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
-
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 app = FastAPI(
@@ -27,6 +22,17 @@ app = FastAPI(
     description="API pour un gestionnaire de tickets avec intégration IA",
     version="1.0.0", 
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # En développement, on autorise tout
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
 
 # Récupération des URLs depuis le docker-compose
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
