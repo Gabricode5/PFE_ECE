@@ -48,7 +48,9 @@ export default function SignUpPage() {
                 // Inscription réussie ! On redirige vers le login
                 router.push("/login")
             } else {
+                // 1. On récupère le JSON d'erreur (ex: { "detail": "Cet email est déjà utilisé." })
                 const errorData = await response.json()
+                // 2. On met à jour le state 'error' avec le message précis du backend
                 setError(errorData.detail || "Une erreur est survenue")
             }
         } catch (err) {
@@ -66,6 +68,11 @@ export default function SignUpPage() {
             </CardHeader>
             <form onSubmit={handleSubmit}>
                 <CardContent className="space-y-4">
+                    {error && (
+                        <div className="p-3 text-sm font-medium text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+                            {error}
+                        </div>
+                    )}
                     <div className="space-y-2">
                         <Label htmlFor="username">Nom d'utilisateur</Label>
                         <Input id="username" name="username" placeholder="nom_d_utilisateur" required />
