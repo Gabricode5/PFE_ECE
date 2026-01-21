@@ -31,9 +31,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Remplace ta ligne SECRET_KEY par celle-ci pour tester
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Récupération des URLs depuis le docker-compose
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
@@ -42,10 +44,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    # On définit l'heure d'expiration (ex: 60 minutes)
+    # Utilise datetime.now() au lieu de utcnow() pour tester
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    # On signe le jeton avec la clé secrète
+    # Ajoute un print pour voir si ça bloque ici dans tes logs Docker
+    print(f"DEBUG: Encoding token for {to_encode.get('sub')}") 
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 

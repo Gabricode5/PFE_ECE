@@ -71,11 +71,8 @@ services:
     container_name: ticket-ai-backend
     ports:
       - "8000:8000"
-    environment:
-      - NODE_ENV=development
-      - OLLAMA_URL=http://ollama:11434
-      - DATABASE_URL=postgresql://admin:Password1234@postgres/ticketdb
-      - REDIS_URL=redis://redis:6379
+    env_file:
+      - .env
     volumes:
       - ./backend:/app
     depends_on:
