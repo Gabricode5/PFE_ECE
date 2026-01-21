@@ -108,20 +108,13 @@ def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     user = db.query(models.Utilisateur).filter(models.Utilisateur.email == user_credentials.email).first()
     
     # 2. Si l'utilisateur n'existe pas
-    if not user:
+    if not user or not pwd_context.verify(user_credentials.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="L'email ou le mot de passe est incorrect"
         )
 
-    # 3. On compare le mot de passe reçu avec le hash stocké en base
-    if not pwd_context.verify(user_credentials.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="L'email ou le mot de passe est incorrect"
-        )
-
-    # 4. Si tout est bon, on génère le Token
+    # 3. Si tout est bon, on génère le Token
     access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
 
     # On renvoie le jeton au frontend
