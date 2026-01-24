@@ -47,6 +47,7 @@ function LoginForm() {
             
             // Stocker le pseudo pour l'affichage
             localStorage.setItem("username", data.username)
+            localStorage.setItem("user_email", email as string)
 
             // 2. Redirection vers le dashboard ou l'accueil
             router.push("/")

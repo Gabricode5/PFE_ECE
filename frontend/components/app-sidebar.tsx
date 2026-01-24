@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react" // Ajout de ces imports
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -15,22 +16,45 @@ import {
 
 export function AppSidebar() {
     const pathname = usePathname()
+    
+    // État pour stocker l'utilisateur (valeurs par défaut vides)
+    const [user, setUser] = useState({
+        username: "Utilisateur",
+        email: "chargement...",
+        initials: "U"
+    })
+
+    useEffect(() => {
+        // Récupération des données du localStorage au montage du composant
+        const storedUser = localStorage.getItem("username")
+        const storedEmail = localStorage.getItem("user_email") || "votre@email.com"
+
+        if (storedUser) {
+            setUser({
+                username: storedUser,
+                email: storedEmail,
+                initials: storedUser.substring(0, 2).toUpperCase()
+            })
+        }
+    }, [])
 
     const isActive = (path: string) => {
-        if (path === "/") {
-            return pathname === "/"
-        }
+        if (path === "/") return pathname === "/"
         return pathname?.startsWith(path)
     }
 
     const handleLogout = () => {
+        // Nettoyage complet
         document.cookie = "auth_token=; path=/; max-age=0; SameSite=Strict"
+        document.cookie = "token=; path=/; max-age=0; SameSite=Strict"
+        localStorage.removeItem("username")
+        localStorage.removeItem("user_email")
+        
         window.location.href = "/login"
     }
 
-
     return (
-        <aside className="w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border hidden md:flex flex-col">
+        <aside className="w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border hidden md:flex flex-col h-full">
             {/* Logo Area */}
             <div className="h-16 flex items-center px-6 border-b border-sidebar-border">
                 <div className="flex items-center gap-2 font-bold text-xl">
@@ -43,7 +67,7 @@ export function AppSidebar() {
 
             {/* Navigation */}
             <div className="flex-1 overflow-y-auto py-6 px-3 space-y-6">
-                {/* Primary Menu */}
+                {/* ... (Reste de votre menu identique) ... */}
                 <div>
                     <h3 className="px-4 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
                         Menu Principal
@@ -114,20 +138,26 @@ export function AppSidebar() {
                 </div>
             </div>
 
-            {/* User Footer */}
+            {/* User Footer Mis à jour */}
             <div className="p-4 border-t border-sidebar-border">
-                <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent cursor-pointer group">
-                    <Avatar className="h-9 w-9">
-                        <AvatarImage src="/avatar-placeholder.png" alt="User" />
-                        <AvatarFallback>JD</AvatarFallback>
+                <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent cursor-default group transition-all">
+                    <Avatar className="h-9 w-9 border border-sidebar-border">
+                        <AvatarImage src="/avatar-placeholder.png" alt={user.username} />
+                        <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
+                            {user.initials}
+                        </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 overflow-hidden">
-                        <p className="text-sm font-medium leading-none truncate group-hover:text-sidebar-accent-foreground">Jean Dupont</p>
-                        <p className="text-xs text-sidebar-foreground/70 truncate group-hover:text-sidebar-accent-foreground/70">jean@exemple.com</p>
+                        <p className="text-sm font-semibold leading-none truncate text-sidebar-foreground">
+                            {user.username}
+                        </p>
+                        <p className="text-[11px] text-sidebar-foreground/60 truncate mt-1">
+                            {user.email}
+                        </p>
                     </div>
                     <button
                         onClick={handleLogout}
-                        className="text-sidebar-foreground/50 hover:text-destructive transition-colors"
+                        className="p-1.5 rounded-md text-sidebar-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-all"
                         title="Se déconnecter"
                     >
                         <LogOut className="h-4 w-4" />

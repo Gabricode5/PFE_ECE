@@ -1,3 +1,5 @@
+"use client"
+
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -30,25 +32,22 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="flex items-center gap-4">
-    {/* Barre de recherche existante */}
                     <div className="relative w-96 hidden md:block">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
                             type="search"
-                            placeholder="Rechercher des conversations ou des clients..."
+                            placeholder="Rechercher des conversations..."
                             className="pl-9 bg-muted/20 border-muted-foreground/20 focus-visible:ring-offset-0 focus-visible:bg-background transition-colors"
                         />
                     </div>
 
-                    {/* Bouton Notification existant */}
                     <Button variant="ghost" size="icon" className="relative">
                         <Bell className="h-5 w-5" />
                         <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive border-2 border-background" />
                     </Button>
 
-                    {/* --- AJOUT DU BOUTON DÉCONNEXION ICI --- */}
-                    <div className="h-6 w-[1px] bg-border mx-1" /> {/* Séparateur visuel */}
-                    <LogoutButton />
+                    <div className="h-6 w-[1px] bg-border mx-1" />
+                    <LogoutButton /> {/* Bouton de déconnexion */}
                 </div>
             </header>
 
