@@ -32,3 +32,15 @@ class UserResponse(BaseModel):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+class ChatSessionCreate(BaseModel):
+    title: Optional[str] = "Nouvelle conversation"
+
+class ChatSessionResponse(BaseModel):
+    id: int
+    id_utilisateur: int
+    title: Optional[str]
+    date_creation: datetime
+
+    class Config:
+        from_attributes = True

@@ -24,6 +24,7 @@ class Utilisateur(Base):
     nom = Column(String(50))
     id_role = Column(Integer, ForeignKey("roles.id"), server_default="1")
     date_creation = Column(DateTime(timezone=True), server_default=func.now())
+    role = relationship("Role")
 
 class ChatSession(Base):
     __tablename__ = "chat_sessions"

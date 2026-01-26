@@ -48,6 +48,8 @@ function LoginForm() {
             // Stocker le pseudo pour l'affichage
             localStorage.setItem("username", data.username)
             localStorage.setItem("user_email", email as string)
+            localStorage.setItem("user_role", data.nom_role)
+                 
 
             // 2. Redirection vers le dashboard ou l'accueil
             router.push("/")
@@ -82,9 +84,8 @@ function LoginForm() {
                             id="email"
                             name="email"
                             type="email"
-                            placeholder="m@exemple.com"
+                            placeholder="mail@exemple.com"
                             required
-                            defaultValue="marimounalia@gmail.com"
                         />
                     </div>
                     <div className="space-y-2">
@@ -102,7 +103,6 @@ function LoginForm() {
                             name="password"
                             type="password"
                             required
-                            defaultValue="1234"
                         />
                     </div>
                     <Button type="submit" className="w-full">

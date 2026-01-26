@@ -45,9 +45,6 @@ export default function DashboardPage() {
                         <Bell className="h-5 w-5" />
                         <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive border-2 border-background" />
                     </Button>
-
-                    <div className="h-6 w-[1px] bg-border mx-1" />
-                    <LogoutButton /> {/* Bouton de déconnexion */}
                 </div>
             </header>
 

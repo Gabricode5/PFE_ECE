@@ -5,8 +5,7 @@ import requests
 import os
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
-import models
-import schemas
+import models, schemas
 from database import engine, get_db
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
@@ -107,25 +106,53 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/login")
 def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
-    # 1. On cherche l'utilisateur dans la base par son email
+    # 1. On cherche l'utilisateur avec une jointure pour charger le rôle
     user = db.query(models.Utilisateur).filter(models.Utilisateur.email == user_credentials.email).first()
     
-    # 2. Si l'utilisateur n'existe pas
+    # 2. Vérification sécurité
     if not user or not pwd_context.verify(user_credentials.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="L'email ou le mot de passe est incorrect"
         )
 
-    # 3. Si tout est bon, on génère le Token
-    access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+    # 3. Récupérer le nom du rôle (via la relation SQLAlchemy)
+    # On suppose que dans ton fichier models.py, tu as une relation 'role' dans ta classe Utilisateur
+    role_name = user.role.nom_role if user.role else "user"
 
-    # On renvoie le jeton au frontend
+    # 4. Générer le Token (On ajoute le rôle à l'intérieur du token pour plus de sécurité)
+    access_token = create_access_token(data={
+        "sub": user.email, 
+        "user_id": user.id,
+        "role": role_name # Optionnel mais recommandé
+    })
+
+    # 5. On renvoie tout au frontend
     return {
         "access_token": access_token, 
         "token_type": "bearer",
-        "username": user.username
+        "username": user.username,
+        "nom_role": role_name # C'est cette valeur que ton frontend va utiliser
     }
+
+@app.post("/sessions", response_model=schemas.ChatSessionResponse)
+def create_session(session_data: schemas.ChatSessionCreate, user_id: int, db: Session = Depends(get_db)):
+    # 1. Vérifier si l'utilisateur existe
+    user = db.query(models.Utilisateur).filter(models.Utilisateur.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    # 2. Créer la nouvelle session
+    new_session = models.ChatSession(
+        id_utilisateur=user_id,
+        title=session_data.title
+    )
+
+    db.add(new_session)
+    db.commit()
+    db.refresh(new_session)
+    
+    return new_session
 
 @app.get("/check-ai")
 def check_ai():

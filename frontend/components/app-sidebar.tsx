@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react" // Ajout de ces imports
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -17,23 +17,25 @@ import {
 export function AppSidebar() {
     const pathname = usePathname()
     
-    // État pour stocker l'utilisateur (valeurs par défaut vides)
+    // État pour stocker l'utilisateur et son rôle
     const [user, setUser] = useState({
         username: "Utilisateur",
         email: "chargement...",
-        initials: "U"
+        initials: "U",
+        role: "user" // Rôle par défaut
     })
 
     useEffect(() => {
-        // Récupération des données du localStorage au montage du composant
         const storedUser = localStorage.getItem("username")
         const storedEmail = localStorage.getItem("user_email") || "votre@email.com"
+        const storedRole = localStorage.getItem("user_role") || "user"
 
         if (storedUser) {
             setUser({
                 username: storedUser,
                 email: storedEmail,
-                initials: storedUser.substring(0, 2).toUpperCase()
+                initials: storedUser.substring(0, 2).toUpperCase(),
+                role: storedRole
             })
         }
     }, [])
@@ -44,11 +46,11 @@ export function AppSidebar() {
     }
 
     const handleLogout = () => {
-        // Nettoyage complet
         document.cookie = "auth_token=; path=/; max-age=0; SameSite=Strict"
         document.cookie = "token=; path=/; max-age=0; SameSite=Strict"
         localStorage.removeItem("username")
         localStorage.removeItem("user_email")
+        localStorage.removeItem("user_role") // On nettoie le rôle aussi
         
         window.location.href = "/login"
     }
@@ -67,7 +69,6 @@ export function AppSidebar() {
 
             {/* Navigation */}
             <div className="flex-1 overflow-y-auto py-6 px-3 space-y-6">
-                {/* ... (Reste de votre menu identique) ... */}
                 <div>
                     <h3 className="px-4 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
                         Menu Principal
@@ -86,23 +87,26 @@ export function AppSidebar() {
                                 Tableau de bord
                             </Link>
                         </Button>
-                        <Button
-                            variant={isActive("/knowledge-base") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/knowledge-base") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/knowledge-base">
-                                <BookOpen className="mr-3 h-4 w-4" />
-                                Base de connaissances
-                            </Link>
-                        </Button>
+
+                        {/* ACCÈS : ADMIN ou SAV uniquement */}
+                        {(user.role === "admin" || user.role === "sav") && (
+                            <Button
+                                variant={isActive("/knowledge-base") ? "secondary" : "ghost"}
+                                asChild
+                                className={cn(
+                                    "w-full justify-start",
+                                    isActive("/knowledge-base") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                                )}
+                            >
+                                <Link href="/knowledge-base">
+                                    <BookOpen className="mr-3 h-4 w-4" />
+                                    Base de connaissances
+                                </Link>
+                            </Button>
+                        )}
                     </div>
                 </div>
 
-                {/* AI Tools */}
                 <div>
                     <h3 className="px-4 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
                         Outils IA
@@ -121,24 +125,28 @@ export function AppSidebar() {
                                 Assistant IA
                             </Link>
                         </Button>
-                        <Button
-                            variant={isActive("/analytics") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/analytics") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/analytics">
-                                <BarChart2 className="mr-3 h-4 w-4" />
-                                Analytique
-                            </Link>
-                        </Button>
+
+                        {/* ACCÈS : ADMIN uniquement */}
+                        {user.role === "admin" && (
+                            <Button
+                                variant={isActive("/analytics") ? "secondary" : "ghost"}
+                                asChild
+                                className={cn(
+                                    "w-full justify-start",
+                                    isActive("/analytics") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                                )}
+                            >
+                                <Link href="/analytics">
+                                    <BarChart2 className="mr-3 h-4 w-4" />
+                                    Analytique
+                                </Link>
+                            </Button>
+                        )}
                     </div>
                 </div>
             </div>
 
-            {/* User Footer Mis à jour */}
+            {/* User Footer */}
             <div className="p-4 border-t border-sidebar-border">
                 <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent cursor-default group transition-all">
                     <Avatar className="h-9 w-9 border border-sidebar-border">
@@ -148,8 +156,10 @@ export function AppSidebar() {
                         </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 overflow-hidden">
-                        <p className="text-sm font-semibold leading-none truncate text-sidebar-foreground">
+                        <p className="text-sm font-semibold leading-none truncate text-sidebar-foreground flex items-center gap-2">
                             {user.username}
+                            {/* Petit badge visuel pour le rôle */}
+                            {user.role === "admin" && <span className="text-[10px] bg-amber-100 text-amber-700 px-1 rounded">Pro</span>}
                         </p>
                         <p className="text-[11px] text-sidebar-foreground/60 truncate mt-1">
                             {user.email}
