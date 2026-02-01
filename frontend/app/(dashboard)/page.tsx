@@ -16,9 +16,46 @@ import {
     TrendingDown,
     Bot
 } from "lucide-react"
-import { LogoutButton } from "@/components/logoutButton"
+import { useRouter } from "next/navigation"
+import { useState } from "react"
 
 export default function DashboardPage() {
+    const router = useRouter()
+    const [isCreating, setIsCreating] = useState(false)
+
+    // Fonction pour créer une nouvelle session de chat
+    const handleCreateChat = async () => {
+        setIsCreating(true)
+        try {
+            // On récupère l'ID de l'utilisateur stocké au login
+            const userId = localStorage.getItem("user_id")
+            
+            if (!userId) {
+                console.error("ID utilisateur manquant dans le localStorage")
+                router.push("/login")
+                return
+            }
+
+            const response = await fetch(`http://localhost:8000/sessions?user_id=${userId}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: "Nouvelle discussion" }),
+            })
+
+            if (response.ok) {
+                const newSession = await response.json()
+                // Redirection vers la page de chat dynamique
+                router.push(`/ai-assistant/${newSession.id}`)
+            } else {
+                console.error("Échec de la création de la session")
+            }
+        } catch (error) {
+            console.error("Erreur réseau :", error)
+        } finally {
+            setIsCreating(false)
+        }
+    }
+
     return (
         <div className="flex flex-col min-h-full">
             {/* Header Bar */}
@@ -179,8 +216,14 @@ export default function DashboardPage() {
                             </p>
                         </CardContent>
                         <CardContent className="pt-0">
-                            <Button className="w-full" size="lg">
-                                Démarrer une conversation de test
+                            {/* BOUTON CONNECTÉ À L'API */}
+                            <Button 
+                                className="w-full" 
+                                size="lg" 
+                                onClick={handleCreateChat}
+                                disabled={isCreating}
+                            >
+                                {isCreating ? "Création en cours..." : "Démarrer une conversation de test"}
                             </Button>
                         </CardContent>
                     </Card>

@@ -49,7 +49,7 @@ function LoginForm() {
             localStorage.setItem("username", data.username)
             localStorage.setItem("user_email", email as string)
             localStorage.setItem("user_role", data.nom_role)
-                 
+            localStorage.setItem("user_id", data.user_id)
 
             // 2. Redirection vers le dashboard ou l'accueil
             router.push("/")
