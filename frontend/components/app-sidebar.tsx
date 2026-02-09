@@ -11,19 +11,32 @@ import {
     BookOpen,
     Bot,
     BarChart2,
-    LogOut
+    LogOut,
+    Plus,
+    MessageSquare
 } from "lucide-react"
+
+// Type pour tes conversations
+interface Conversation {
+    id: string;
+    title: string;
+}
 
 export function AppSidebar() {
     const pathname = usePathname()
     
-    // État pour stocker l'utilisateur et son rôle
     const [user, setUser] = useState({
         username: "Utilisateur",
         email: "chargement...",
         initials: "U",
-        role: "user" // Rôle par défaut
+        role: "user"
     })
+
+    // État pour stocker l'historique des conversations
+    const [conversations, setConversations] = useState<Conversation[]>([
+        { id: "1", title: "Problème livraison" }, // Exemple statique
+        { id: "2", title: "Demande de devis" }   // À remplacer par un fetch API
+    ])
 
     useEffect(() => {
         const storedUser = localStorage.getItem("username")
@@ -38,6 +51,8 @@ export function AppSidebar() {
                 role: storedRole
             })
         }
+        
+        // Ici, tu pourrais ajouter un fetchConversations() pour charger la liste depuis ta DB
     }, [])
 
     const isActive = (path: string) => {
@@ -47,11 +62,9 @@ export function AppSidebar() {
 
     const handleLogout = () => {
         document.cookie = "auth_token=; path=/; max-age=0; SameSite=Strict"
-        document.cookie = "token=; path=/; max-age=0; SameSite=Strict"
         localStorage.removeItem("username")
         localStorage.removeItem("user_email")
-        localStorage.removeItem("user_role") // On nettoie le rôle aussi
-        
+        localStorage.removeItem("user_role")
         window.location.href = "/login"
     }
 
@@ -67,8 +80,10 @@ export function AppSidebar() {
                 </div>
             </div>
 
-            {/* Navigation */}
-            <div className="flex-1 overflow-y-auto py-6 px-3 space-y-6">
+            {/* Navigation & Historique */}
+            <div className="flex-1 overflow-y-auto py-6 px-3 flex flex-col gap-6">
+                
+                {/* 1. Menu Principal */}
                 <div>
                     <h3 className="px-4 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
                         Menu Principal
@@ -77,10 +92,7 @@ export function AppSidebar() {
                         <Button
                             variant={isActive("/") ? "secondary" : "ghost"}
                             asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
+                            className={cn("w-full justify-start", isActive("/") && "bg-sidebar-accent")}
                         >
                             <Link href="/">
                                 <LayoutDashboard className="mr-3 h-4 w-4" />
@@ -88,15 +100,11 @@ export function AppSidebar() {
                             </Link>
                         </Button>
 
-                        {/* ACCÈS : ADMIN ou SAV uniquement */}
                         {(user.role === "admin" || user.role === "sav") && (
                             <Button
                                 variant={isActive("/knowledge-base") ? "secondary" : "ghost"}
                                 asChild
-                                className={cn(
-                                    "w-full justify-start",
-                                    isActive("/knowledge-base") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                                )}
+                                className={cn("w-full justify-start", isActive("/knowledge-base") && "bg-sidebar-accent")}
                             >
                                 <Link href="/knowledge-base">
                                     <BookOpen className="mr-3 h-4 w-4" />
@@ -107,34 +115,60 @@ export function AppSidebar() {
                     </div>
                 </div>
 
+                {/* 2. Section Discussions (Style ChatGPT) */}
+                <div>
+                    <div className="flex items-center justify-between px-4 mb-2">
+                        <h3 className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+                            Discussions
+                        </h3>
+                        <Link href="/ai-assistant" title="Nouvelle discussion">
+                            <Plus className="h-4 w-4 hover:text-primary cursor-pointer transition-colors" />
+                        </Link>
+                    </div>
+                    
+                    <div className="space-y-1">
+                        {/* Bouton pour créer une nouvelle discussion */}
+                        <Button
+                            variant="outline"
+                            asChild
+                            className="w-full justify-start border-dashed border-sidebar-border hover:border-primary/50 mb-2"
+                        >
+                            <Link href="/ai-assistant">
+                                <Plus className="mr-2 h-4 w-4" />
+                                Nouveau chat
+                            </Link>
+                        </Button>
+
+                        {/* Liste des conversations récentes */}
+                        <div className="max-h-[300px] overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                            {conversations.map((chat) => (
+                                <Button
+                                    key={chat.id}
+                                    variant={pathname === `/ai-assistant/${chat.id}` ? "secondary" : "ghost"}
+                                    asChild
+                                    className="w-full justify-start font-normal text-sm h-9 px-3"
+                                >
+                                    <Link href={`/ai-assistant/${chat.id}`} className="truncate">
+                                        <MessageSquare className="mr-3 h-3.5 w-3.5 flex-shrink-0" />
+                                        <span className="truncate">{chat.title}</span>
+                                    </Link>
+                                </Button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* 3. Outils IA */}
                 <div>
                     <h3 className="px-4 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
                         Outils IA
                     </h3>
                     <div className="space-y-1">
-                        <Button
-                            variant={isActive("/ai-assistant") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/ai-assistant") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/ai-assistant">
-                                <Bot className="mr-3 h-4 w-4" />
-                                Assistant IA
-                            </Link>
-                        </Button>
-
-                        {/* ACCÈS : ADMIN uniquement */}
                         {user.role === "admin" && (
                             <Button
                                 variant={isActive("/analytics") ? "secondary" : "ghost"}
                                 asChild
-                                className={cn(
-                                    "w-full justify-start",
-                                    isActive("/analytics") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                                )}
+                                className={cn("w-full justify-start", isActive("/analytics") && "bg-sidebar-accent")}
                             >
                                 <Link href="/analytics">
                                     <BarChart2 className="mr-3 h-4 w-4" />
@@ -158,7 +192,6 @@ export function AppSidebar() {
                     <div className="flex-1 overflow-hidden">
                         <p className="text-sm font-semibold leading-none truncate text-sidebar-foreground flex items-center gap-2">
                             {user.username}
-                            {/* Petit badge visuel pour le rôle */}
                             {user.role === "admin" && <span className="text-[10px] bg-amber-100 text-amber-700 px-1 rounded">Pro</span>}
                         </p>
                         <p className="text-[11px] text-sidebar-foreground/60 truncate mt-1">

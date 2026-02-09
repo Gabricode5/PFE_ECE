@@ -51,3 +51,6 @@ CREATE TABLE knowledge_base (
 
 -- Index pour accélérer les recherches de l'IA
 CREATE INDEX ON knowledge_base USING hnsw (embedding vector_cosine_ops);
+
+-- insertion des statuts dans la table role 
+INSERT INTO roles (nom_role) VALUES ('user'), ('ai'), ('sav'), ('admin');
