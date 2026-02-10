@@ -29,6 +29,15 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class UserListResponse(BaseModel):
+    id: int
+    username: str
+    email: EmailStr
+    role: str
+
+    class Config:
+        from_attributes = True
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
@@ -40,6 +49,21 @@ class ChatSessionResponse(BaseModel):
     id: int
     id_utilisateur: int
     title: Optional[str]
+    date_creation: datetime
+
+    class Config:
+        from_attributes = True
+
+class ChatMessageCreate(BaseModel):
+    id_session: int
+    type_envoyeur: str
+    contenu: str
+
+class ChatMessageResponse(BaseModel):
+    id: int
+    id_session: int
+    type_envoyeur: str
+    contenu: str
     date_creation: datetime
 
     class Config:

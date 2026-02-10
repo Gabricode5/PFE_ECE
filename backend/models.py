@@ -38,9 +38,9 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    id_session = Column(Integer, ForeignKey("chat_session.id"), nullable=False)
+    id_session = Column(Integer, ForeignKey("chat_sessions.id"), nullable=False)
     type_envoyeur = Column(String(10), nullable=False)
-    content = Column(Text, nullable=False)
+    contenu = Column(Text, nullable=False)
     date_creation = Column(DateTime(timezone=True), server_default=func.now())
 
 class KnowledgeBase(Base):

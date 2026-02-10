@@ -13,13 +13,22 @@ import {
     BarChart2,
     LogOut,
     Plus,
-    MessageSquare
+    MessageSquare,
+    Trash2
 } from "lucide-react"
 
 // Type pour tes conversations
 interface Conversation {
     id: string;
     title: string;
+}
+
+function getAuthToken(): string | null {
+    const tokenPair = document.cookie
+        .split("; ")
+        .find((entry) => entry.startsWith("auth_token="))
+    if (!tokenPair) return null
+    return tokenPair.split("=")[1] || null
 }
 
 export function AppSidebar() {
@@ -33,10 +42,8 @@ export function AppSidebar() {
     })
 
     // État pour stocker l'historique des conversations
-    const [conversations, setConversations] = useState<Conversation[]>([
-        { id: "1", title: "Problème livraison" }, // Exemple statique
-        { id: "2", title: "Demande de devis" }   // À remplacer par un fetch API
-    ])
+    const [conversations, setConversations] = useState<Conversation[]>([])
+    const [isLoadingConversations, setIsLoadingConversations] = useState(false)
 
     useEffect(() => {
         const storedUser = localStorage.getItem("username")
@@ -51,9 +58,94 @@ export function AppSidebar() {
                 role: storedRole
             })
         }
-        
-        // Ici, tu pourrais ajouter un fetchConversations() pour charger la liste depuis ta DB
     }, [])
+
+    const fetchConversations = async () => {
+        const userId = localStorage.getItem("user_id")
+        if (!userId) return
+        const token = getAuthToken()
+        if (!token) return
+
+        setIsLoadingConversations(true)
+        try {
+            const response = await fetch(`http://localhost:8000/sessions?user_id=${userId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            if (!response.ok) return
+            const data = await response.json()
+            const normalized: Conversation[] = data.map((item: { id: number | string; title?: string | null }) => ({
+                id: String(item.id),
+                title: item.title || "Nouvelle conversation",
+            }))
+            setConversations(normalized)
+        } catch (error) {
+            console.error("Erreur réseau :", error)
+        } finally {
+            setIsLoadingConversations(false)
+        }
+    }
+
+    useEffect(() => {
+        fetchConversations()
+    }, [])
+
+    const handleCreateConversation = async () => {
+        const userId = localStorage.getItem("user_id")
+        if (!userId) {
+            window.location.href = "/login"
+            return
+        }
+        const token = getAuthToken()
+        if (!token) {
+            window.location.href = "/login"
+            return
+        }
+
+        const titleInput = window.prompt("Titre de la conversation :", "Nouvelle conversation")
+        if (titleInput === null) return
+        const labelInput = window.prompt("Libellé (optionnel) :", "")
+        if (labelInput === null) return
+        const normalizedTitle = titleInput.trim() || "Nouvelle conversation"
+        const normalizedLabel = labelInput.trim()
+        const finalTitle = normalizedLabel ? `${normalizedLabel} - ${normalizedTitle}` : normalizedTitle
+
+        try {
+            const response = await fetch(`http://localhost:8000/sessions?user_id=${userId}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ title: finalTitle }),
+            })
+
+            if (!response.ok) return
+            const newSession = await response.json()
+            window.location.href = `/ai-assistant/${newSession.id}`
+        } catch (error) {
+            console.error("Erreur réseau :", error)
+        }
+    }
+
+    const handleDeleteConversation = async (conversationId: string) => {
+        const confirmed = window.confirm("Supprimer cette conversation ?")
+        if (!confirmed) return
+
+        try {
+            const response = await fetch(`http://localhost:8000/sessions/${conversationId}`, {
+                method: "DELETE"
+            })
+
+            if (!response.ok) return
+            setConversations((prev) => prev.filter((chat) => chat.id !== conversationId))
+
+            if (pathname === `/ai-assistant/${conversationId}`) {
+                window.location.href = "/"
+            }
+        } catch (error) {
+            console.error("Erreur réseau :", error)
+        }
+    }
 
     const isActive = (path: string) => {
         if (path === "/") return pathname === "/"
@@ -121,39 +213,70 @@ export function AppSidebar() {
                         <h3 className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
                             Discussions
                         </h3>
-                        <Link href="/ai-assistant" title="Nouvelle discussion">
-                            <Plus className="h-4 w-4 hover:text-primary cursor-pointer transition-colors" />
-                        </Link>
+                        {user.role !== "admin" && (
+                            <button
+                                type="button"
+                                onClick={handleCreateConversation}
+                                className="hover:text-primary transition-colors"
+                                title="Nouvelle discussion"
+                            >
+                                <Plus className="h-4 w-4 cursor-pointer" />
+                            </button>
+                        )}
                     </div>
                     
                     <div className="space-y-1">
                         {/* Bouton pour créer une nouvelle discussion */}
-                        <Button
-                            variant="outline"
-                            asChild
-                            className="w-full justify-start border-dashed border-sidebar-border hover:border-primary/50 mb-2"
-                        >
-                            <Link href="/ai-assistant">
+                        {user.role !== "admin" && (
+                            <Button
+                                variant="outline"
+                                className="w-full justify-start border-dashed border-sidebar-border hover:border-primary/50 mb-2"
+                                onClick={handleCreateConversation}
+                            >
                                 <Plus className="mr-2 h-4 w-4" />
                                 Nouveau chat
-                            </Link>
-                        </Button>
+                            </Button>
+                        )}
 
                         {/* Liste des conversations récentes */}
                         <div className="max-h-[300px] overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-                            {conversations.map((chat) => (
-                                <Button
-                                    key={chat.id}
-                                    variant={pathname === `/ai-assistant/${chat.id}` ? "secondary" : "ghost"}
-                                    asChild
-                                    className="w-full justify-start font-normal text-sm h-9 px-3"
-                                >
-                                    <Link href={`/ai-assistant/${chat.id}`} className="truncate">
-                                        <MessageSquare className="mr-3 h-3.5 w-3.5 flex-shrink-0" />
-                                        <span className="truncate">{chat.title}</span>
-                                    </Link>
-                                </Button>
-                            ))}
+                            {isLoadingConversations ? (
+                                <div className="px-3 text-xs text-sidebar-foreground/60">
+                                    Chargement des conversations...
+                                </div>
+                            ) : conversations.length === 0 ? (
+                                <div className="px-3 text-xs text-sidebar-foreground/60">
+                                    Aucune conversation pour le moment.
+                                </div>
+                            ) : (
+                                conversations.map((chat) => (
+                                    <div
+                                        key={chat.id}
+                                        className={cn(
+                                            "group flex items-center w-full rounded-md px-3 h-9 text-sm",
+                                            pathname === `/ai-assistant/${chat.id}`
+                                                ? "bg-sidebar-accent"
+                                                : "hover:bg-sidebar-accent/60"
+                                        )}
+                                    >
+                                        <Link
+                                            href={`/ai-assistant/${chat.id}`}
+                                            className="flex items-center gap-3 flex-1 min-w-0"
+                                        >
+                                            <MessageSquare className="h-3.5 w-3.5 flex-shrink-0" />
+                                            <span className="truncate">{chat.title}</span>
+                                        </Link>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteConversation(chat.id)}
+                                            className="ml-2 rounded-md p-1 text-sidebar-foreground/40 hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition"
+                                            title="Supprimer"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     </div>
                 </div>

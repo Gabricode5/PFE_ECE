@@ -38,6 +38,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Récupération des URLs depuis le docker-compose
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral-small")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
@@ -61,6 +62,14 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         return email
     except JWTError:
         raise HTTPException(status_code=401, detail="Session expirée ou invalide")
+
+def get_user_by_email(db: Session, email: str):
+    return db.query(models.Utilisateur).filter(models.Utilisateur.email == email).first()
+
+def is_admin_or_sav(user: models.Utilisateur | None):
+    if not user or not user.role:
+        return False
+    return user.role.nom_role in ["admin", "sav"]
 
 
 @app.get("/")
@@ -155,6 +164,115 @@ def create_session(session_data: schemas.ChatSessionCreate, user_id: int, db: Se
     
     return new_session
 
+@app.get("/sessions", response_model=list[schemas.ChatSessionResponse])
+def list_sessions(
+    user_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Vérifier si l'utilisateur existe
+    user = db.query(models.Utilisateur).filter(models.Utilisateur.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    requester = get_user_by_email(db, current_user)
+    if not requester:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    if not is_admin_or_sav(requester) and requester.id != user_id:
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    sessions = (
+        db.query(models.ChatSession)
+        .filter(models.ChatSession.id_utilisateur == user_id)
+        .order_by(models.ChatSession.date_creation.desc())
+        .all()
+    )
+    return sessions
+
+@app.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_session(session_id: int, db: Session = Depends(get_db)):
+    session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    db.delete(session)
+    db.commit()
+
+    return
+
+@app.get("/users", response_model=list[schemas.UserListResponse])
+def list_users(
+    role: str | None = None,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    requester = get_user_by_email(db, current_user)
+    if not requester or not is_admin_or_sav(requester):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    query = db.query(models.Utilisateur).join(models.Role)
+    if role:
+        query = query.filter(models.Role.nom_role == role)
+
+    users = query.all()
+    return [
+        {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role.nom_role if user.role else "user"
+        }
+        for user in users
+    ]
+
+@app.get("/messages", response_model=list[schemas.ChatMessageResponse])
+def list_messages(session_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = get_user_by_email(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    if not is_admin_or_sav(user) and session.id_utilisateur != user.id:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    messages = (
+        db.query(models.ChatMessage)
+        .filter(models.ChatMessage.id_session == session_id)
+        .order_by(models.ChatMessage.date_creation.asc())
+        .all()
+    )
+    return messages
+
+@app.post("/messages", response_model=schemas.ChatMessageResponse, status_code=status.HTTP_201_CREATED)
+def create_message(message: schemas.ChatMessageCreate, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = get_user_by_email(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    session = db.query(models.ChatSession).filter(models.ChatSession.id == message.id_session).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    if not is_admin_or_sav(user) and session.id_utilisateur != user.id:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    if message.type_envoyeur not in ["user", "ai", "sav"]:
+        raise HTTPException(status_code=400, detail="Type d'envoyeur invalide")
+
+    new_message = models.ChatMessage(
+        id_session=message.id_session,
+        type_envoyeur=message.type_envoyeur,
+        contenu=message.contenu
+    )
+    db.add(new_message)
+    db.commit()
+    db.refresh(new_message)
+    return new_message
+
 @app.get("/check-ai")
 def check_ai():
     """Vérifie si le backend peut parler à Ollama"""
@@ -165,12 +283,61 @@ def check_ai():
         return {"ollama_connected": False, "error": str(e)}
 
 @app.post("/ask")
-async def ask_question(question: str, current_user: str = Depends(get_current_user)):
+async def ask_question(
+    question: str,
+    session_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     # L'ajout de 'current_user' oblige l'utilisateur à être connecté
+    user = get_user_by_email(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    if not is_admin_or_sav(user) and session.id_utilisateur != user.id:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    user_message = models.ChatMessage(
+        id_session=session_id,
+        type_envoyeur="user",
+        contenu=question
+    )
+    db.add(user_message)
+    db.commit()
+    db.refresh(user_message)
+
     payload = {
-        "model": "mistral-small",
+        "model": OLLAMA_MODEL,
         "prompt": f"Utilisateur {current_user} demande : {question}",
         "stream": False
     }
     response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload)
-    return response.json()
+    if not response.ok:
+        try:
+            error_payload = response.json()
+            detail = error_payload.get("error") or error_payload.get("message") or str(error_payload)
+        except Exception:
+            detail = response.text or "Erreur Ollama"
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    data = response.json()
+    if isinstance(data, dict) and data.get("error"):
+        raise HTTPException(status_code=500, detail=data.get("error"))
+    ai_text = data.get("response") if isinstance(data, dict) else None
+    if not ai_text:
+        raise HTTPException(status_code=500, detail="Réponse IA invalide")
+
+    ai_message = models.ChatMessage(
+        id_session=session_id,
+        type_envoyeur="ai",
+        contenu=ai_text
+    )
+    db.add(ai_message)
+    db.commit()
+    db.refresh(ai_message)
+
+    return data
