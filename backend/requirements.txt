@@ -12,4 +12,11 @@ pgvector
 requests
 ollama
 
+#Scraping et Traitement de texte
+langchain-community
+beautifulsoup4
+langchain-text-splitters
 
+#Base de données Vectorielle (RAG)
+chromadb
+langchain-ollama
