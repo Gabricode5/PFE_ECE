@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -7,30 +8,160 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import {
     LayoutDashboard,
-    MessageSquare,
-    Users,
     BookOpen,
     Bot,
     BarChart2,
-    Settings,
-    LogOut
+    LogOut,
+    Plus,
+    MessageSquare,
+    Trash2
 } from "lucide-react"
+
+// Type pour tes conversations
+interface Conversation {
+    id: string;
+    title: string;
+}
+
+function getAuthToken(): string | null {
+    const tokenPair = document.cookie
+        .split("; ")
+        .find((entry) => entry.startsWith("auth_token="))
+    if (!tokenPair) return null
+    return tokenPair.split("=")[1] || null
+}
 
 export function AppSidebar() {
     const pathname = usePathname()
+    
+    const [user, setUser] = useState({
+        username: "Utilisateur",
+        email: "chargement...",
+        initials: "U",
+        role: "user"
+    })
+
+    // État pour stocker l'historique des conversations
+    const [conversations, setConversations] = useState<Conversation[]>([])
+    const [isLoadingConversations, setIsLoadingConversations] = useState(false)
+
+    useEffect(() => {
+        const storedUser = localStorage.getItem("username")
+        const storedEmail = localStorage.getItem("user_email") || "votre@email.com"
+        const storedRole = localStorage.getItem("user_role") || "user"
+
+        if (storedUser) {
+            setUser({
+                username: storedUser,
+                email: storedEmail,
+                initials: storedUser.substring(0, 2).toUpperCase(),
+                role: storedRole
+            })
+        }
+    }, [])
+
+    const fetchConversations = async () => {
+        const userId = localStorage.getItem("user_id")
+        if (!userId) return
+        const token = getAuthToken()
+        if (!token) return
+
+        setIsLoadingConversations(true)
+        try {
+            const response = await fetch(`http://localhost:8000/sessions?user_id=${userId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            if (!response.ok) return
+            const data = await response.json()
+            const normalized: Conversation[] = data.map((item: { id: number | string; title?: string | null }) => ({
+                id: String(item.id),
+                title: item.title || "Nouvelle conversation",
+            }))
+            setConversations(normalized)
+        } catch (error) {
+            console.error("Erreur réseau :", error)
+        } finally {
+            setIsLoadingConversations(false)
+        }
+    }
+
+    useEffect(() => {
+        fetchConversations()
+    }, [])
+
+    const handleCreateConversation = async () => {
+        const userId = localStorage.getItem("user_id")
+        if (!userId) {
+            window.location.href = "/login"
+            return
+        }
+        const token = getAuthToken()
+        if (!token) {
+            window.location.href = "/login"
+            return
+        }
+
+        const titleInput = window.prompt("Titre de la conversation :", "Nouvelle conversation")
+        if (titleInput === null) return
+        const labelInput = window.prompt("Libellé (optionnel) :", "")
+        if (labelInput === null) return
+        const normalizedTitle = titleInput.trim() || "Nouvelle conversation"
+        const normalizedLabel = labelInput.trim()
+        const finalTitle = normalizedLabel ? `${normalizedLabel} - ${normalizedTitle}` : normalizedTitle
+
+        try {
+            const response = await fetch(`http://localhost:8000/sessions?user_id=${userId}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ title: finalTitle }),
+            })
+
+            if (!response.ok) return
+            const newSession = await response.json()
+            window.location.href = `/ai-assistant/${newSession.id}`
+        } catch (error) {
+            console.error("Erreur réseau :", error)
+        }
+    }
+
+    const handleDeleteConversation = async (conversationId: string) => {
+        const confirmed = window.confirm("Supprimer cette conversation ?")
+        if (!confirmed) return
+
+        try {
+            const response = await fetch(`http://localhost:8000/sessions/${conversationId}`, {
+                method: "DELETE"
+            })
+
+            if (!response.ok) return
+            setConversations((prev) => prev.filter((chat) => chat.id !== conversationId))
+
+            if (pathname === `/ai-assistant/${conversationId}`) {
+                window.location.href = "/"
+            }
+        } catch (error) {
+            console.error("Erreur réseau :", error)
+        }
+    }
 
     const isActive = (path: string) => {
-        return pathname === path
+        if (path === "/") return pathname === "/"
+        return pathname?.startsWith(path)
     }
 
     const handleLogout = () => {
         document.cookie = "auth_token=; path=/; max-age=0; SameSite=Strict"
+        localStorage.removeItem("username")
+        localStorage.removeItem("user_email")
+        localStorage.removeItem("user_role")
         window.location.href = "/login"
     }
 
-
     return (
-        <aside className="w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border hidden md:flex flex-col">
+        <aside className="w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border hidden md:flex flex-col h-full">
             {/* Logo Area */}
             <div className="h-16 flex items-center px-6 border-b border-sidebar-border">
                 <div className="flex items-center gap-2 font-bold text-xl">
@@ -41,9 +172,10 @@ export function AppSidebar() {
                 </div>
             </div>
 
-            {/* Navigation */}
-            <div className="flex-1 overflow-y-auto py-6 px-3 space-y-6">
-                {/* Primary Menu */}
+            {/* Navigation & Historique */}
+            <div className="flex-1 overflow-y-auto py-6 px-3 flex flex-col gap-6">
+                
+                {/* 1. Menu Principal */}
                 <div>
                     <h3 className="px-4 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
                         Menu Principal
@@ -52,121 +184,146 @@ export function AppSidebar() {
                         <Button
                             variant={isActive("/") ? "secondary" : "ghost"}
                             asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
+                            className={cn("w-full justify-start", isActive("/") && "bg-sidebar-accent")}
                         >
                             <Link href="/">
                                 <LayoutDashboard className="mr-3 h-4 w-4" />
                                 Tableau de bord
                             </Link>
                         </Button>
-                        <Button
-                            variant={isActive("/conversations") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/conversations") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/conversations">
-                                <MessageSquare className="mr-3 h-4 w-4" />
-                                Conversations
-                            </Link>
-                        </Button>
-                        <Button
-                            variant={isActive("/clients") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/clients") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/clients">
-                                <Users className="mr-3 h-4 w-4" />
-                                Clients
-                            </Link>
-                        </Button>
-                        <Button
-                            variant={isActive("/knowledge-base") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/knowledge-base") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/knowledge-base">
-                                <BookOpen className="mr-3 h-4 w-4" />
-                                Base de connaissances
-                            </Link>
-                        </Button>
+
+                        {(user.role === "admin" || user.role === "sav") && (
+                            <Button
+                                variant={isActive("/knowledge-base") ? "secondary" : "ghost"}
+                                asChild
+                                className={cn("w-full justify-start", isActive("/knowledge-base") && "bg-sidebar-accent")}
+                            >
+                                <Link href="/knowledge-base">
+                                    <BookOpen className="mr-3 h-4 w-4" />
+                                    Base de connaissances
+                                </Link>
+                            </Button>
+                        )}
                     </div>
                 </div>
 
-                {/* AI Tools */}
+                {/* 2. Section Discussions (Style ChatGPT) */}
+                <div>
+                    <div className="flex items-center justify-between px-4 mb-2">
+                        <h3 className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+                            Discussions
+                        </h3>
+                        {user.role !== "admin" && (
+                            <button
+                                type="button"
+                                onClick={handleCreateConversation}
+                                className="hover:text-primary transition-colors"
+                                title="Nouvelle discussion"
+                            >
+                                <Plus className="h-4 w-4 cursor-pointer" />
+                            </button>
+                        )}
+                    </div>
+                    
+                    <div className="space-y-1">
+                        {/* Bouton pour créer une nouvelle discussion */}
+                        {user.role !== "admin" && (
+                            <Button
+                                variant="outline"
+                                className="w-full justify-start border-dashed border-sidebar-border hover:border-primary/50 mb-2"
+                                onClick={handleCreateConversation}
+                            >
+                                <Plus className="mr-2 h-4 w-4" />
+                                Nouveau chat
+                            </Button>
+                        )}
+
+                        {/* Liste des conversations récentes */}
+                        <div className="max-h-[300px] overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                            {isLoadingConversations ? (
+                                <div className="px-3 text-xs text-sidebar-foreground/60">
+                                    Chargement des conversations...
+                                </div>
+                            ) : conversations.length === 0 ? (
+                                <div className="px-3 text-xs text-sidebar-foreground/60">
+                                    Aucune conversation pour le moment.
+                                </div>
+                            ) : (
+                                conversations.map((chat) => (
+                                    <div
+                                        key={chat.id}
+                                        className={cn(
+                                            "group flex items-center w-full rounded-md px-3 h-9 text-sm",
+                                            pathname === `/ai-assistant/${chat.id}`
+                                                ? "bg-sidebar-accent"
+                                                : "hover:bg-sidebar-accent/60"
+                                        )}
+                                    >
+                                        <Link
+                                            href={`/ai-assistant/${chat.id}`}
+                                            className="flex items-center gap-3 flex-1 min-w-0"
+                                        >
+                                            <MessageSquare className="h-3.5 w-3.5 flex-shrink-0" />
+                                            <span className="truncate">{chat.title}</span>
+                                        </Link>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteConversation(chat.id)}
+                                            className="ml-2 rounded-md p-1 text-sidebar-foreground/40 hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition"
+                                            title="Supprimer"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* 3. Outils IA */}
                 <div>
                     <h3 className="px-4 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
                         Outils IA
                     </h3>
                     <div className="space-y-1">
-                        <Button
-                            variant={isActive("/ai-assistant") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/ai-assistant") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/ai-assistant">
-                                <Bot className="mr-3 h-4 w-4" />
-                                Assistant IA
-                            </Link>
-                        </Button>
-                        <Button
-                            variant={isActive("/analytics") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/analytics") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/analytics">
-                                <BarChart2 className="mr-3 h-4 w-4" />
-                                Analytique
-                            </Link>
-                        </Button>
-                        <Button
-                            variant={isActive("/configuration") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn(
-                                "w-full justify-start",
-                                isActive("/configuration") ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                            )}
-                        >
-                            <Link href="/configuration">
-                                <Settings className="mr-3 h-4 w-4" />
-                                Configuration
-                            </Link>
-                        </Button>
+                        {user.role === "admin" && (
+                            <Button
+                                variant={isActive("/analytics") ? "secondary" : "ghost"}
+                                asChild
+                                className={cn("w-full justify-start", isActive("/analytics") && "bg-sidebar-accent")}
+                            >
+                                <Link href="/analytics">
+                                    <BarChart2 className="mr-3 h-4 w-4" />
+                                    Analytique
+                                </Link>
+                            </Button>
+                        )}
                     </div>
                 </div>
             </div>
 
             {/* User Footer */}
             <div className="p-4 border-t border-sidebar-border">
-                <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent cursor-pointer group">
-                    <Avatar className="h-9 w-9">
-                        <AvatarImage src="/avatar-placeholder.png" alt="User" />
-                        <AvatarFallback>JD</AvatarFallback>
+                <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent cursor-default group transition-all">
+                    <Avatar className="h-9 w-9 border border-sidebar-border">
+                        <AvatarImage src="/avatar-placeholder.png" alt={user.username} />
+                        <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
+                            {user.initials}
+                        </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 overflow-hidden">
-                        <p className="text-sm font-medium leading-none truncate group-hover:text-sidebar-accent-foreground">Jean Dupont</p>
-                        <p className="text-xs text-sidebar-foreground/70 truncate group-hover:text-sidebar-accent-foreground/70">jean@exemple.com</p>
+                        <p className="text-sm font-semibold leading-none truncate text-sidebar-foreground flex items-center gap-2">
+                            {user.username}
+                            {user.role === "admin" && <span className="text-[10px] bg-amber-100 text-amber-700 px-1 rounded">Pro</span>}
+                        </p>
+                        <p className="text-[11px] text-sidebar-foreground/60 truncate mt-1">
+                            {user.email}
+                        </p>
                     </div>
                     <button
                         onClick={handleLogout}
-                        className="text-sidebar-foreground/50 hover:text-destructive transition-colors"
+                        className="p-1.5 rounded-md text-sidebar-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-all"
                         title="Se déconnecter"
                     >
                         <LogOut className="h-4 w-4" />

@@ -1,8 +1,6 @@
-# docker-compose.yml - À LA RACINE du projet
 version: '3.8'
 
 services:
-  # 1. OLLAMA - Service IA
   ollama:
     image: ollama/ollama:latest
     container_name: ticket-ai-ollama
@@ -10,11 +8,12 @@ services:
       - "11434:11434"
     volumes:
       - ./data/ollama:/root/.ollama
-      - ./ollama/entrypoint.sh:/entrypoint.sh # Liaison du script
-    entrypoint: ["/bin/bash", "/entrypoint.sh"] # Exécution au démarrage
+      - ./ollama/entrypoint.sh:/entrypoint.sh
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    networks:
+      - ticket-ai-network
     restart: unless-stopped
   
-  # 2. POSTGRESQL avec pgvector
   postgres:
     image: pgvector/pgvector:pg16
     container_name: ticket-ai-postgres
@@ -26,10 +25,11 @@ services:
       - "5432:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./backend/db/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - ticket-ai-network
     restart: unless-stopped
   
-  # 3. REDIS pour le cache
   redis:
     image: redis:7-alpine
     container_name: ticket-ai-redis
@@ -37,6 +37,8 @@ services:
       - "6379:6379"
     volumes:
       - ./data/redis:/data
+    networks:
+      - ticket-ai-network
     restart: unless-stopped
 
   pgadmin:
@@ -47,6 +49,8 @@ services:
       - PGADMIN_DEFAULT_PASSWORD=admin
     ports:
       - "5050:80"
+    networks:
+      - ticket-ai-network
     restart: unless-stopped
 
   ollama-webui:
@@ -58,54 +62,41 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
     volumes:
       - open-webui:/app/backend/data
+    networks:
+      - ticket-ai-network
     restart: unless-stopped
   
-  # 4. BACKEND (FastAPI/Node.js)
   backend:
     build: ./backend
     container_name: ticket-ai-backend
     ports:
-      - "8000:8000"  # API Backend
-    environment:
-      - NODE_ENV=development
-      - OLLAMA_URL=http://ollama:11434
-      - DATABASE_URL=postgresql://admin:Password1234@postgres/ticketdb
-      - REDIS_URL=redis://redis:6379
+      - "8000:8000"
+    env_file:
+      - .env
     volumes:
       - ./backend:/app
     depends_on:
       - ollama
       - postgres
       - redis
+    networks:
+      - ticket-ai-network
     restart: unless-stopped
   
-  # 5. FRONTEND (React/Vue)
   frontend:
     build: ./frontend
     container_name: ticket-ai-frontend
     ports:
-      - "3000:3000"  # Frontend Client
-    depends_on:
-      - backend
-    restart: unless-stopped
-  
-  # 6. ADMIN INTERFACE
-  admin:
-    build: ./frontend-admin
-    container_name: ticket-ai-admin
-    ports:
-      - "3001:3000"  # Interface Admin
+      - "3005:3005" 
+    networks:
+      - ticket-ai-network
     depends_on:
       - backend
     restart: unless-stopped
 
 volumes:
-  ollama_data:
-  postgres_data:
-  redis_data:
   open-webui:
 
-# Réseau interne pour communication
 networks:
   ticket-ai-network:
     driver: bridge

@@ -1,4 +1,8 @@
+"use client" //pour utiliser les formulaires et le state
+
+import { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation" //pour la navigation après l'inscription
 import { Button } from "@/components/ui/button"
 import {
     Card,
@@ -12,6 +16,48 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
 export default function SignUpPage() {
+
+    const router = useRouter()
+    const [error, setError] = useState("")
+
+    async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+        event.preventDefault() // Empêche le rechargement de la page
+        setError("")
+
+        const formData = new FormData(event.currentTarget)
+        const data = Object.fromEntries(formData)
+
+        // On prépare l'objet exactement comme ton backend l'attend (UserCreate)
+        const payload = {
+            username: data.username,
+            email: data.email,
+            password: data.password,
+            prenom: data.prenom,
+            nom: data.nom,
+            id_role: 1 // Valeur par défaut pour id_role
+        }
+
+        try {
+            const response = await fetch("http://localhost:8000/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            })
+
+            if (response.ok) {
+                // Inscription réussie ! On redirige vers le login
+                router.push("/login")
+            } else {
+                // 1. On récupère le JSON d'erreur (ex: { "detail": "Cet email est déjà utilisé." })
+                const errorData = await response.json()
+                // 2. On met à jour le state 'error' avec le message précis du backend
+                setError(errorData.detail || "Une erreur est survenue")
+            }
+        } catch (err) {
+            setError("Impossible de contacter le serveur.")
+        }
+    }
+
     return (
         <Card>
             <CardHeader>
@@ -20,23 +66,38 @@ export default function SignUpPage() {
                     Entrez vos informations pour créer votre compte.
                 </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-                <div className="space-y-2">
-                    <Label htmlFor="name">Nom</Label>
-                    <Input id="name" placeholder="Jean Dupont" required />
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" placeholder="m@exemple.com" required />
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="password">Mot de passe</Label>
-                    <Input id="password" type="password" required />
-                </div>
-                <Button type="submit" className="w-full">
-                    S&apos;inscrire
-                </Button>
-            </CardContent>
+            <form onSubmit={handleSubmit}>
+                <CardContent className="space-y-4">
+                    {error && (
+                        <div className="p-3 text-sm font-medium text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+                            {error}
+                        </div>
+                    )}
+                    <div className="space-y-2">
+                        <Label htmlFor="username">Nom d'utilisateur</Label>
+                        <Input id="username" name="username" placeholder="nom_d_utilisateur" required />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input id="email" name="email" type="email" placeholder="email@exemple.com" required />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="password">Mot de passe</Label>
+                        <Input id="password" name="password" type="password" required />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="prenom">Prénom</Label>
+                        <Input id="prenom" name="prenom" placeholder="Jean" required />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="name">Nom</Label>
+                        <Input id="name" name="nom" placeholder="Dupont" required />
+                    </div>
+                    <Button type="submit" className="w-full">
+                        S&apos;inscrire
+                    </Button>
+                </CardContent>
+            </form>
             <CardFooter className="flex justify-center">
                 <div className="text-sm text-muted-foreground">
                     Déjà un compte ?{" "}

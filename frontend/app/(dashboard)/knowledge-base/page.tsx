@@ -1,7 +1,34 @@
+"use client"
+
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import {
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+} from "@/components/ui/tabs"
 import {
     Search,
     Plus,
@@ -14,20 +41,165 @@ import {
     Video,
     HelpCircle,
     Lightbulb,
-    Cpu
+    Cpu,
+    Upload
 } from "lucide-react"
 
 export default function KnowledgeBasePage() {
+    const [articles, setArticles] = useState(INITIAL_ARTICLES)
+    const [searchQuery, setSearchQuery] = useState("")
+    const [activeFilter, setActiveFilter] = useState("Tout")
+    const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+    const [activeTab, setActiveTab] = useState("write")
+    const [newArticle, setNewArticle] = useState({
+        title: "",
+        category: "Guides",
+        summary: "",
+        tags: "",
+        fileName: ""
+    })
+
+    const handleAddArticle = () => {
+        let summaryText = newArticle.summary
+        if (activeTab === "upload" && newArticle.fileName) {
+            summaryText = `Document importé : ${newArticle.fileName}`
+        }
+
+        const article = {
+            title: newArticle.title,
+            summary: summaryText,
+            icon: activeTab === "upload" ? <FileText className="h-5 w-5" /> : getIconForCategory(newArticle.category),
+            tags: newArticle.tags.split(",").map(t => t.trim()).filter(Boolean),
+            views: "0",
+            rating: "0",
+            date: "À l'instant",
+            category: newArticle.category
+        }
+        setArticles([article, ...articles])
+        setIsAddDialogOpen(false)
+        setNewArticle({ title: "", category: "Guides", summary: "", tags: "", fileName: "" })
+        setActiveTab("write")
+    }
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setNewArticle({ ...newArticle, fileName: e.target.files[0].name })
+        }
+    }
+
+    const filteredArticles = articles.filter(article => {
+        const matchesSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            article.summary.toLowerCase().includes(searchQuery.toLowerCase())
+        const matchesFilter = activeFilter === "Tout" || article.category === activeFilter
+        return matchesSearch && matchesFilter
+    })
+
     return (
         <div className="flex flex-col min-h-full">
             {/* Header & Search */}
             <div className="p-8 pb-4 space-y-6 bg-background border-b">
                 <div className="flex items-center justify-between">
                     <h1 className="text-2xl font-bold tracking-tight">Base de connaissances</h1>
-                    <Button>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Ajouter un article
-                    </Button>
+                    <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+                        <DialogTrigger asChild>
+                            <Button>
+                                <Plus className="mr-2 h-4 w-4" />
+                                Ajouter un article
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[500px]">
+                            <DialogHeader>
+                                <DialogTitle>Ajouter un nouvel article</DialogTitle>
+                                <DialogDescription>
+                                    Ajoutez du contenu manuellement ou importez un document.
+                                </DialogDescription>
+                            </DialogHeader>
+
+                            <div className="grid gap-4 py-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="title">Titre</Label>
+                                    <Input
+                                        id="title"
+                                        value={newArticle.title}
+                                        onChange={(e) => setNewArticle({ ...newArticle, title: e.target.value })}
+                                        placeholder="Titre de l'article"
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="category">Catégorie</Label>
+                                    <Select
+                                        value={newArticle.category}
+                                        onValueChange={(value) => setNewArticle({ ...newArticle, category: value })}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Sélectionner une catégorie" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="FAQ">FAQ</SelectItem>
+                                            <SelectItem value="Guides">Guides</SelectItem>
+                                            <SelectItem value="Documentation">Documentation</SelectItem>
+                                            <SelectItem value="Vidéos">Vidéos</SelectItem>
+                                            <SelectItem value="Formés IA">Formés IA</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="tags">Tags</Label>
+                                    <Input
+                                        id="tags"
+                                        value={newArticle.tags}
+                                        onChange={(e) => setNewArticle({ ...newArticle, tags: e.target.value })}
+                                        placeholder="Ex: API, Tutoriel"
+                                    />
+                                </div>
+
+                                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                                    <TabsList className="grid w-full grid-cols-2">
+                                        <TabsTrigger value="write">Rédiger</TabsTrigger>
+                                        <TabsTrigger value="upload">Importer</TabsTrigger>
+                                    </TabsList>
+                                    <TabsContent value="write" className="space-y-2 mt-4">
+                                        <Label htmlFor="summary">Contenu / Résumé</Label>
+                                        <Textarea
+                                            id="summary"
+                                            value={newArticle.summary}
+                                            onChange={(e) => setNewArticle({ ...newArticle, summary: e.target.value })}
+                                            placeholder="Écrivez le contenu de votre article ici..."
+                                            className="min-h-[150px]"
+                                        />
+                                    </TabsContent>
+                                    <TabsContent value="upload" className="space-y-4 mt-4">
+                                        <div className="border-2 border-dashed border-muted-foreground/25 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:bg-muted/30 transition-colors cursor-pointer"
+                                            onClick={() => document.getElementById('file-upload')?.click()}
+                                        >
+                                            <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                                                <Upload className="h-6 w-6 text-primary" />
+                                            </div>
+                                            <p className="text-sm font-medium">
+                                                {newArticle.fileName ? newArticle.fileName : "Cliquez pour importer un fichier"}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                PDF, DOCX, ou TXT jusqu'à 10MB
+                                            </p>
+                                            <Input
+                                                id="file-upload"
+                                                type="file"
+                                                className="hidden"
+                                                onChange={handleFileChange}
+                                                accept=".pdf,.doc,.docx,.txt"
+                                            />
+                                        </div>
+                                    </TabsContent>
+                                </Tabs>
+                            </div>
+
+                            <DialogFooter>
+                                <Button onClick={handleAddArticle}>
+                                    {activeTab === "upload" ? "Importer et Créer" : "Publier l'article"}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </div>
 
                 <div className="relative">
@@ -35,18 +207,19 @@ export default function KnowledgeBasePage() {
                     <Input
                         placeholder="Rechercher dans la base de connaissances..."
                         className="pl-12 h-12 text-lg rounded-xl bg-muted/30 border-muted-foreground/20 focus-visible:bg-background"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
 
                 {/* Filter Bar */}
                 <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
-                    <FilterChip label="Tout" active />
-                    <FilterChip label="FAQ" icon={<HelpCircle className="h-3.5 w-3.5" />} />
-                    <FilterChip label="Guides" icon={<Book className="h-3.5 w-3.5" />} />
-                    <FilterChip label="Documentation" icon={<FileText className="h-3.5 w-3.5" />} />
-                    <FilterChip label="Vidéos" icon={<Video className="h-3.5 w-3.5" />} />
-                    <FilterChip label="Formés IA" icon={<Cpu className="h-3.5 w-3.5" />} />
-                    <FilterChip label="Populaire" icon={<Star className="h-3.5 w-3.5" />} />
+                    <FilterChip label="Tout" active={activeFilter === "Tout"} onClick={() => setActiveFilter("Tout")} />
+                    <FilterChip label="FAQ" icon={<HelpCircle className="h-3.5 w-3.5" />} active={activeFilter === "FAQ"} onClick={() => setActiveFilter("FAQ")} />
+                    <FilterChip label="Guides" icon={<Book className="h-3.5 w-3.5" />} active={activeFilter === "Guides"} onClick={() => setActiveFilter("Guides")} />
+                    <FilterChip label="Documentation" icon={<FileText className="h-3.5 w-3.5" />} active={activeFilter === "Documentation"} onClick={() => setActiveFilter("Documentation")} />
+                    <FilterChip label="Vidéos" icon={<Video className="h-3.5 w-3.5" />} active={activeFilter === "Vidéos"} onClick={() => setActiveFilter("Vidéos")} />
+                    <FilterChip label="Formés IA" icon={<Cpu className="h-3.5 w-3.5" />} active={activeFilter === "Formés IA"} onClick={() => setActiveFilter("Formés IA")} />
                 </div>
             </div>
 
@@ -56,7 +229,7 @@ export default function KnowledgeBasePage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <MetricCard
                         icon={<FileText className="h-6 w-6 text-blue-500" />}
-                        value="142"
+                        value={`${articles.length}`}
                         label="Articles Totaux"
                     />
                     <MetricCard
@@ -78,7 +251,7 @@ export default function KnowledgeBasePage() {
 
                 {/* Article Content Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {articles.map((article, index) => (
+                    {filteredArticles.map((article, index) => (
                         <ArticleCard key={index} article={article} />
                     ))}
                 </div>
@@ -87,12 +260,13 @@ export default function KnowledgeBasePage() {
     )
 }
 
-function FilterChip({ label, icon, active }: { label: string, icon?: React.ReactNode, active?: boolean }) {
+function FilterChip({ label, icon, active, onClick }: { label: string, icon?: React.ReactNode, active?: boolean, onClick?: () => void }) {
     return (
         <Button
             variant={active ? "default" : "outline"}
             size="sm"
             className={`rounded-full h-8 ${active ? "" : "bg-transparent hover:bg-muted"}`}
+            onClick={onClick}
         >
             {icon && <span className="mr-2 opacity-70">{icon}</span>}
             {label}
@@ -170,7 +344,18 @@ function ArticleCard({ article }: { article: any }) {
     )
 }
 
-const articles = [
+function getIconForCategory(category: string) {
+    switch (category) {
+        case "FAQ": return <HelpCircle className="h-5 w-5" />
+        case "Guides": return <Book className="h-5 w-5" />
+        case "Documentation": return <FileText className="h-5 w-5" />
+        case "Vidéos": return <Video className="h-5 w-5" />
+        case "Formés IA": return <Cpu className="h-5 w-5" />
+        default: return <FileText className="h-5 w-5" />
+    }
+}
+
+const INITIAL_ARTICLES = [
     {
         title: "Comment réinitialiser votre mot de passe ?",
         summary: "Guide étape par étape pour réinitialiser votre mot de passe en toute sécurité via le portail client ou l'application mobile.",
@@ -178,7 +363,8 @@ const articles = [
         tags: ["Compte", "Sécurité"],
         views: "2.4k",
         rating: "4.8",
-        date: "Il y a 2 jours"
+        date: "Il y a 2 jours",
+        category: "FAQ"
     },
     {
         title: "Comprendre votre facture mensuelle",
@@ -187,7 +373,8 @@ const articles = [
         tags: ["Facturation", "Finance"],
         views: "1.8k",
         rating: "4.5",
-        date: "Il y a 1 semaine"
+        date: "Il y a 1 semaine",
+        category: "Guides"
     },
     {
         title: "Intégration de l'API REST",
@@ -196,7 +383,8 @@ const articles = [
         tags: ["API", "Développeurs"],
         views: "956",
         rating: "4.9",
-        date: "Il y a 3 semaines"
+        date: "Il y a 3 semaines",
+        category: "Documentation"
     },
     {
         title: "Tutoriel vidéo : Configuration initiale",
@@ -205,6 +393,7 @@ const articles = [
         tags: ["Tutoriel", "Onboarding"],
         views: "5.1k",
         rating: "4.7",
-        date: "Il y a 1 mois"
+        date: "Il y a 1 mois",
+        category: "Vidéos"
     }
 ]

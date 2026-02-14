@@ -24,21 +24,42 @@ function LoginForm() {
     const [error, setError] = useState("")
 
     async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-        event.preventDefault()
-        setError("")
+    event.preventDefault()
+    setError("")
 
-        const formData = new FormData(event.currentTarget)
-        const email = formData.get("email") as string
-        const password = formData.get("password") as string
+    const formData = new FormData(event.currentTarget)
+    const email = formData.get("email")
+    const password = formData.get("password")
 
-        if (email === "marimounalia@gmail.com" && password === "1234") {
-            // Set simple cookie for demo purposes
-            document.cookie = "auth_token=valid_token; path=/; max-age=86400; SameSite=Strict"
-            // Use router.push via a wrapper or direct if client component
-            // We need to ensure this is a client component
-            window.location.href = "/" // Force full reload to ensure middleware picks up cookie immediately if needed, or router.push
+    try {
+        const response = await fetch("http://localhost:8000/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+        })
+
+        const data = await response.json()
+
+        if (response.ok) {
+            // 1. Stocker le token JWT dans les cookies ou localStorage
+            // Le backend renvoie { access_token: "...", token_type: "bearer", username: "..." }
+            document.cookie = `auth_token=${data.access_token}; path=/; max-age=3600; SameSite=Strict`
+            
+            // Stocker le pseudo pour l'affichage
+            localStorage.setItem("username", data.username)
+            localStorage.setItem("user_email", email as string)
+            localStorage.setItem("user_role", data.nom_role)
+            localStorage.setItem("user_id", data.user_id)
+
+            // 2. Redirection vers le dashboard ou l'accueil
+            router.push("/")
+            router.refresh() // Pour mettre à jour les composants layout
         } else {
-            setError("Identifiants incorrects. Veuillez réessayer.")
+            // Afficher le message d'erreur du backend (ex: "L'email ou le mot de passe est incorrect")
+            setError(data.detail || "Échec de la connexion")
+        }
+        } catch (err) {
+            setError("Impossible de contacter le serveur.")
         }
     }
 
@@ -63,9 +84,8 @@ function LoginForm() {
                             id="email"
                             name="email"
                             type="email"
-                            placeholder="m@exemple.com"
+                            placeholder="mail@exemple.com"
                             required
-                            defaultValue="marimounalia@gmail.com"
                         />
                     </div>
                     <div className="space-y-2">
@@ -83,7 +103,6 @@ function LoginForm() {
                             name="password"
                             type="password"
                             required
-                            defaultValue="1234"
                         />
                     </div>
                     <Button type="submit" className="w-full">
