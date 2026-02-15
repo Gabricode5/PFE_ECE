@@ -1,6 +1,7 @@
 from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
 
+# Modèle utilisé : nomic-embed-text pour la rapidité)
 # Configuration - On reste sur les mêmes chemins que ingest.py
 PERSIST_DIRECTORY = "backend/db"
 
