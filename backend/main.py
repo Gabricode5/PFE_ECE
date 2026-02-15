@@ -3,11 +3,9 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 import requests
 import os
-<<<<<<< HEAD
 # On ajoute ces imports pour lire la base de données vectorielle
 from langchain_community.vectorstores import Chroma
 from langchain_ollama import OllamaEmbeddings
-=======
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 import models, schemas
@@ -17,7 +15,6 @@ from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
->>>>>>> e27369f649504c4e5b5c8dbbb8df71f52d1594ee
 
 load_dotenv()  # Charger les variables d'environnement depuis le fichier .env
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -42,7 +39,6 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-<<<<<<< HEAD
 # CONFIGURATION
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 # C'est le dossier que tu as créé avec ingest.py
@@ -50,7 +46,6 @@ PERSIST_DIRECTORY = "./db_service_public"
 
 # Initialisation de la fonction d'embedding (doit être la même que dans ingest.py)
 embeddings = OllamaEmbeddings(model="mistral-small", base_url=OLLAMA_URL)
-=======
 # Récupération des URLs depuis le docker-compose
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral-small")
@@ -86,7 +81,6 @@ def is_admin_or_sav(user: models.Utilisateur | None):
         return False
     return user.role.nom_role in ["admin", "sav"]
 
->>>>>>> e27369f649504c4e5b5c8dbbb8df71f52d1594ee
 
 @app.get("/")
 def read_root():
@@ -339,9 +333,7 @@ def check_ai():
         return {"ollama_connected": True, "models": response.json()}
     except Exception as e:
         return {"ollama_connected": False, "error": str(e)}
-<<<<<<< HEAD
     
-=======
 
 @app.post("/ask")
 async def ask_question(
@@ -402,4 +394,3 @@ async def ask_question(
     db.refresh(ai_message)
 
     return data
->>>>>>> e27369f649504c4e5b5c8dbbb8df71f52d1594ee
