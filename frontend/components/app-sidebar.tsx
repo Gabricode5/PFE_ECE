@@ -208,6 +208,7 @@ export function AppSidebar() {
                 </div>
 
                 {/* 2. Section Discussions (Style ChatGPT) */}
+                {user.role !== "admin" && (
                 <div>
                     <div className="flex items-center justify-between px-4 mb-2">
                         <h3 className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
@@ -280,6 +281,7 @@ export function AppSidebar() {
                         </div>
                     </div>
                 </div>
+                )}
 
                 {/* 3. Outils IA */}
                 <div>

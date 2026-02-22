@@ -366,10 +366,144 @@ def list_users(
             "id": user.id,
             "username": user.username,
             "email": user.email,
+            "prenom": user.prenom,
+            "nom": user.nom,
             "role": user.role.nom_role if user.role else "user"
         }
         for user in users
     ]
+
+@app.put("/users/{user_id}/role", response_model=schemas.UserListResponse)
+def update_user_role(
+    user_id: int,
+    payload: schemas.UserRoleUpdateRequest,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    requester = get_user_by_email(db, current_user)
+    if not requester or not requester.role or requester.role.nom_role != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    target_user = db.query(models.Utilisateur).filter(models.Utilisateur.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    if requester.id == target_user.id:
+        raise HTTPException(status_code=400, detail="Vous ne pouvez pas modifier votre propre rôle")
+
+    new_role = payload.role.strip().lower()
+    if new_role not in ["user", "sav", "admin"]:
+        raise HTTPException(status_code=400, detail="Rôle invalide")
+
+    role_row = db.query(models.Role).filter(models.Role.nom_role == new_role).first()
+    if not role_row:
+        raise HTTPException(status_code=400, detail="Rôle introuvable")
+
+    target_user.id_role = role_row.id
+    db.commit()
+    db.refresh(target_user)
+
+    return {
+        "id": target_user.id,
+        "username": target_user.username,
+        "email": target_user.email,
+        "prenom": target_user.prenom,
+        "nom": target_user.nom,
+        "role": target_user.role.nom_role if target_user.role else "user",
+    }
+
+@app.put("/users/{user_id}", response_model=schemas.UserListResponse)
+def update_user_by_admin(
+    user_id: int,
+    payload: schemas.UserAdminUpdateRequest,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    requester = get_user_by_email(db, current_user)
+    if not requester or not requester.role or requester.role.nom_role != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    target_user = db.query(models.Utilisateur).filter(models.Utilisateur.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    if payload.username is not None:
+        new_username = payload.username.strip()
+        if not new_username:
+            raise HTTPException(status_code=400, detail="Le username ne peut pas être vide")
+        existing_username = (
+            db.query(models.Utilisateur)
+            .filter(models.Utilisateur.username == new_username, models.Utilisateur.id != target_user.id)
+            .first()
+        )
+        if existing_username:
+            raise HTTPException(status_code=400, detail="Ce username est déjà utilisé")
+        target_user.username = new_username
+
+    if payload.email is not None:
+        new_email = payload.email.strip().lower()
+        existing_email = (
+            db.query(models.Utilisateur)
+            .filter(models.Utilisateur.email == new_email, models.Utilisateur.id != target_user.id)
+            .first()
+        )
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
+        target_user.email = new_email
+
+    if payload.prenom is not None:
+        target_user.prenom = payload.prenom.strip() if payload.prenom else None
+
+    if payload.nom is not None:
+        target_user.nom = payload.nom.strip() if payload.nom else None
+
+    if payload.role is not None:
+        next_role = payload.role.strip().lower()
+        if next_role not in ["user", "sav", "admin"]:
+            raise HTTPException(status_code=400, detail="Rôle invalide")
+
+        # Empêche un admin de se retirer son propre rôle admin par erreur.
+        if requester.id == target_user.id and next_role != "admin":
+            raise HTTPException(status_code=400, detail="Vous ne pouvez pas retirer votre rôle admin")
+
+        role_row = db.query(models.Role).filter(models.Role.nom_role == next_role).first()
+        if not role_row:
+            raise HTTPException(status_code=400, detail="Rôle introuvable")
+        target_user.id_role = role_row.id
+
+    db.commit()
+    db.refresh(target_user)
+
+    return {
+        "id": target_user.id,
+        "username": target_user.username,
+        "email": target_user.email,
+        "prenom": target_user.prenom,
+        "nom": target_user.nom,
+        "role": target_user.role.nom_role if target_user.role else "user",
+    }
+
+@app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user_by_admin(
+    user_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    requester = get_user_by_email(db, current_user)
+    if not requester or not requester.role or requester.role.nom_role != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    target_user = db.query(models.Utilisateur).filter(models.Utilisateur.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    if requester.id == target_user.id:
+        raise HTTPException(status_code=400, detail="Vous ne pouvez pas supprimer votre propre compte")
+
+    db.delete(target_user)
+    db.commit()
+
+    return
 
 @app.get("/messages", response_model=list[schemas.ChatMessageResponse])
 def list_messages(session_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):

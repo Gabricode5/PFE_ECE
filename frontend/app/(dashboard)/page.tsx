@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
     Search,
     Bell,
@@ -13,7 +13,6 @@ import {
     Clock,
     Star,
     TrendingUp,
-    TrendingDown,
     Bot,
     Users,
     Shield,
@@ -26,6 +25,8 @@ type UserItem = {
     id: number
     username: string
     email: string
+    prenom?: string | null
+    nom?: string | null
     role: string
 }
 
@@ -42,6 +43,13 @@ type MessageItem = {
     createdAt: string
 }
 
+type BackendMessageItem = {
+    id: number | string
+    type_envoyeur: "user" | "ai" | "sav"
+    contenu?: string | null
+    date_creation?: string | null
+}
+
 function getAuthToken(): string | null {
     const tokenPair = document.cookie
         .split("; ")
@@ -52,10 +60,10 @@ function getAuthToken(): string | null {
 
 export default function DashboardPage() {
     const router = useRouter()
-    const [isCreating, setIsCreating] = useState(false)
     const [role, setRole] = useState("user")
     const [users, setUsers] = useState<UserItem[]>([])
     const [savUsers, setSavUsers] = useState<UserItem[]>([])
+    const [adminUsers, setAdminUsers] = useState<UserItem[]>([])
     const [selectedUser, setSelectedUser] = useState<UserItem | null>(null)
     const [sessions, setSessions] = useState<SessionItem[]>([])
     const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null)
@@ -63,14 +71,19 @@ export default function DashboardPage() {
     const [reply, setReply] = useState("")
     const [adminError, setAdminError] = useState<string | null>(null)
     const [isLoadingAdmin, setIsLoadingAdmin] = useState(false)
+    const [updatingRoleUserId, setUpdatingRoleUserId] = useState<number | null>(null)
+    const [updatingUserId, setUpdatingUserId] = useState<number | null>(null)
     const [userSessions, setUserSessions] = useState<SessionItem[]>([])
     const [userQuery, setUserQuery] = useState("")
     const [isLoadingUser, setIsLoadingUser] = useState(false)
     const [userError, setUserError] = useState<string | null>(null)
+    const [currentUserId, setCurrentUserId] = useState<number | null>(null)
 
     useEffect(() => {
         const storedRole = localStorage.getItem("user_role") || "user"
+        const storedUserId = localStorage.getItem("user_id")
         setRole(storedRole)
+        setCurrentUserId(storedUserId ? Number(storedUserId) : null)
     }, [])
 
     useEffect(() => {
@@ -109,89 +122,183 @@ export default function DashboardPage() {
         loadUserSessions()
     }, [role])
 
-    useEffect(() => {
-        if (role !== "admin") return
+    const loadAdminData = async () => {
+        setIsLoadingAdmin(true)
+        setAdminError(null)
+        const token = getAuthToken()
+        if (!token) {
+            setAdminError("Session expirée. Veuillez vous reconnecter.")
+            setIsLoadingAdmin(false)
+            return
+        }
 
-        async function loadAdminData() {
-            setIsLoadingAdmin(true)
-            setAdminError(null)
-            const token = getAuthToken()
-            if (!token) {
-                setAdminError("Session expirée. Veuillez vous reconnecter.")
+        try {
+            const [usersRes, savRes, adminsRes] = await Promise.all([
+                fetch("http://localhost:8000/users?role=user", {
+                    headers: { Authorization: `Bearer ${token}` }
+                }),
+                fetch("http://localhost:8000/users?role=sav", {
+                    headers: { Authorization: `Bearer ${token}` }
+                }),
+                fetch("http://localhost:8000/users?role=admin", {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+            ])
+
+            if (!usersRes.ok || !savRes.ok || !adminsRes.ok) {
+                setAdminError("Impossible de charger les utilisateurs.")
                 setIsLoadingAdmin(false)
                 return
             }
 
-            try {
-                const [usersRes, savRes] = await Promise.all([
-                    fetch("http://localhost:8000/users?role=user", {
-                        headers: { Authorization: `Bearer ${token}` }
-                    }),
-                    fetch("http://localhost:8000/users?role=sav", {
-                        headers: { Authorization: `Bearer ${token}` }
-                    })
-                ])
-
-                if (!usersRes.ok || !savRes.ok) {
-                    setAdminError("Impossible de charger les utilisateurs.")
-                    setIsLoadingAdmin(false)
-                    return
-                }
-
-                const usersData = await usersRes.json()
-                const savData = await savRes.json()
-                setUsers(usersData)
-                setSavUsers(savData)
-            } catch (error) {
-                console.error("Erreur admin :", error)
-                setAdminError("Erreur réseau.")
-            } finally {
-                setIsLoadingAdmin(false)
-            }
+            const usersData = await usersRes.json()
+            const savData = await savRes.json()
+            const adminsData = await adminsRes.json()
+            setUsers(usersData)
+            setSavUsers(savData)
+            setAdminUsers(adminsData)
+        } catch (error) {
+            console.error("Erreur admin :", error)
+            setAdminError("Erreur réseau.")
+        } finally {
+            setIsLoadingAdmin(false)
         }
+    }
 
+    useEffect(() => {
+        if (role !== "admin") return
         loadAdminData()
     }, [role])
 
-    // Fonction pour créer une nouvelle session de chat
-    const handleCreateChat = async () => {
-        setIsCreating(true)
+    const handleChangeUserRole = async (userItem: UserItem, newRole: "user" | "sav" | "admin") => {
+        setAdminError(null)
+        const token = getAuthToken()
+        if (!token) {
+            setAdminError("Session expirée. Veuillez vous reconnecter.")
+            return
+        }
+
+        setUpdatingRoleUserId(userItem.id)
         try {
-            // On récupère l'ID de l'utilisateur stocké au login
-            const userId = localStorage.getItem("user_id")
-            
-            if (!userId) {
-                console.error("ID utilisateur manquant dans le localStorage")
-                router.push("/login")
-                return
-            }
-
-            const token = getAuthToken()
-            if (!token) {
-                router.push("/login")
-                return
-            }
-
-            const response = await fetch(`http://localhost:8000/sessions?user_id=${userId}`, {
-                method: "POST",
+            const response = await fetch(`http://localhost:8000/users/${userItem.id}/role`, {
+                method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify({ title: "Nouvelle discussion" }),
+                body: JSON.stringify({ role: newRole })
             })
 
-            if (response.ok) {
-                const newSession = await response.json()
-                // Redirection vers la page de chat dynamique
-                router.push(`/ai-assistant/${newSession.id}`)
-            } else {
-                console.error("Échec de la création de la session")
+            const data = await response.json()
+            if (!response.ok) {
+                setAdminError(data?.detail || "Impossible de modifier le rôle.")
+                return
             }
+
+            if (selectedUser?.id === userItem.id) {
+                setSelectedUser((prev) => (prev ? { ...prev, role: data.role } : prev))
+            }
+
+            await loadAdminData()
         } catch (error) {
-            console.error("Erreur réseau :", error)
+            console.error("Erreur changement rôle :", error)
+            setAdminError("Erreur réseau.")
         } finally {
-            setIsCreating(false)
+            setUpdatingRoleUserId(null)
+        }
+    }
+
+    const handleEditUser = async (userItem: UserItem) => {
+        setAdminError(null)
+        const token = getAuthToken()
+        if (!token) {
+            setAdminError("Session expirée. Veuillez vous reconnecter.")
+            return
+        }
+
+        const username = window.prompt("Nom d'utilisateur", userItem.username)
+        if (username === null) return
+        const email = window.prompt("Email", userItem.email)
+        if (email === null) return
+        const prenom = window.prompt("Prénom (optionnel)", userItem.prenom || "")
+        if (prenom === null) return
+        const nom = window.prompt("Nom (optionnel)", userItem.nom || "")
+        if (nom === null) return
+        const roleInput = window.prompt("Rôle (user | sav | admin)", userItem.role)
+        if (roleInput === null) return
+
+        setUpdatingUserId(userItem.id)
+        try {
+            const response = await fetch(`http://localhost:8000/users/${userItem.id}`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    username: username.trim(),
+                    email: email.trim().toLowerCase(),
+                    prenom: prenom.trim(),
+                    nom: nom.trim(),
+                    role: roleInput.trim().toLowerCase()
+                })
+            })
+
+            const data = await response.json()
+            if (!response.ok) {
+                setAdminError(data?.detail || "Impossible de modifier l'utilisateur.")
+                return
+            }
+
+            if (selectedUser?.id === userItem.id) {
+                setSelectedUser(data)
+            }
+            await loadAdminData()
+        } catch (error) {
+            console.error("Erreur update user :", error)
+            setAdminError("Erreur réseau.")
+        } finally {
+            setUpdatingUserId(null)
+        }
+    }
+
+    const handleDeleteUser = async (userItem: UserItem) => {
+        setAdminError(null)
+        const token = getAuthToken()
+        if (!token) {
+            setAdminError("Session expirée. Veuillez vous reconnecter.")
+            return
+        }
+
+        const confirmed = window.confirm(`Supprimer le compte ${userItem.username} ?`)
+        if (!confirmed) return
+
+        setUpdatingUserId(userItem.id)
+        try {
+            const response = await fetch(`http://localhost:8000/users/${userItem.id}`, {
+                method: "DELETE",
+                headers: { Authorization: `Bearer ${token}` }
+            })
+
+            if (!response.ok) {
+                const data = await response.json()
+                setAdminError(data?.detail || "Impossible de supprimer l'utilisateur.")
+                return
+            }
+
+            if (selectedUser?.id === userItem.id) {
+                setSelectedUser(null)
+                setSelectedSession(null)
+                setSessions([])
+                setMessages([])
+            }
+
+            await loadAdminData()
+        } catch (error) {
+            console.error("Erreur suppression user :", error)
+            setAdminError("Erreur réseau.")
+        } finally {
+            setUpdatingUserId(null)
         }
     }
 
@@ -243,7 +350,7 @@ export default function DashboardPage() {
                 return
             }
             const data = await response.json()
-            const normalized: MessageItem[] = data.map((item: any) => ({
+            const normalized: MessageItem[] = (data as BackendMessageItem[]).map((item) => ({
                 id: String(item.id),
                 role: item.type_envoyeur,
                 content: item.contenu ?? "",
@@ -323,7 +430,7 @@ export default function DashboardPage() {
                         </div>
                     ) : null}
 
-                    <div className="grid gap-6 lg:grid-cols-3">
+                    <div className="grid gap-6 lg:grid-cols-4">
                         <Card className="lg:col-span-1">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -339,14 +446,46 @@ export default function DashboardPage() {
                                     <div className="text-sm text-muted-foreground">Aucun utilisateur.</div>
                                 ) : (
                                     users.map((u) => (
-                                        <button
+                                        <div
                                             key={u.id}
-                                            onClick={() => handleSelectUser(u)}
-                                            className={`w-full text-left rounded-md px-3 py-2 border ${selectedUser?.id === u.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-muted/40"}`}
+                                            className={`w-full rounded-md px-3 py-2 border ${selectedUser?.id === u.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-muted/40"}`}
                                         >
-                                            <div className="text-sm font-medium">{u.username}</div>
-                                            <div className="text-xs text-muted-foreground">{u.email}</div>
-                                        </button>
+                                            <button
+                                                onClick={() => handleSelectUser(u)}
+                                                className="w-full text-left"
+                                            >
+                                                <div className="text-sm font-medium">{u.username}</div>
+                                                <div className="text-xs text-muted-foreground">{u.email}</div>
+                                            </button>
+                                            <div className="mt-2">
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => handleChangeUserRole(u, "sav")}
+                                                    disabled={updatingRoleUserId === u.id}
+                                                >
+                                                    {updatingRoleUserId === u.id ? "..." : "Passer SAV"}
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="ml-2"
+                                                    onClick={() => handleEditUser(u)}
+                                                    disabled={updatingUserId === u.id}
+                                                >
+                                                    {updatingUserId === u.id ? "..." : "Modifier"}
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="destructive"
+                                                    className="ml-2"
+                                                    onClick={() => handleDeleteUser(u)}
+                                                    disabled={updatingUserId === u.id || currentUserId === u.id}
+                                                >
+                                                    Supprimer
+                                                </Button>
+                                            </div>
+                                        </div>
                                     ))
                                 )}
                             </CardContent>
@@ -368,8 +507,89 @@ export default function DashboardPage() {
                                 ) : (
                                     savUsers.map((u) => (
                                         <div key={u.id} className="rounded-md px-3 py-2 border border-muted/40">
-                                            <div className="text-sm font-medium">{u.username}</div>
-                                            <div className="text-xs text-muted-foreground">{u.email}</div>
+                                            <button
+                                                onClick={() => handleSelectUser(u)}
+                                                className="w-full text-left"
+                                            >
+                                                <div className="text-sm font-medium">{u.username}</div>
+                                                <div className="text-xs text-muted-foreground">{u.email}</div>
+                                            </button>
+                                            <div className="mt-2">
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => handleChangeUserRole(u, "user")}
+                                                    disabled={updatingRoleUserId === u.id}
+                                                >
+                                                    {updatingRoleUserId === u.id ? "..." : "Retirer SAV"}
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="ml-2"
+                                                    onClick={() => handleEditUser(u)}
+                                                    disabled={updatingUserId === u.id}
+                                                >
+                                                    {updatingUserId === u.id ? "..." : "Modifier"}
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="destructive"
+                                                    className="ml-2"
+                                                    onClick={() => handleDeleteUser(u)}
+                                                    disabled={updatingUserId === u.id || currentUserId === u.id}
+                                                >
+                                                    Supprimer
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        <Card className="lg:col-span-1">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Shield className="h-4 w-4" />
+                                    Admins
+                                </CardTitle>
+                                <CardDescription>Comptes administrateurs.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-2 max-h-[420px] overflow-y-auto">
+                                {isLoadingAdmin ? (
+                                    <div className="text-sm text-muted-foreground">Chargement...</div>
+                                ) : adminUsers.length === 0 ? (
+                                    <div className="text-sm text-muted-foreground">Aucun admin.</div>
+                                ) : (
+                                    adminUsers.map((u) => (
+                                        <div key={u.id} className="rounded-md px-3 py-2 border border-muted/40">
+                                            <button
+                                                onClick={() => handleSelectUser(u)}
+                                                className="w-full text-left"
+                                            >
+                                                <div className="text-sm font-medium">{u.username}</div>
+                                                <div className="text-xs text-muted-foreground">{u.email}</div>
+                                            </button>
+                                            <div className="mt-2">
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => handleEditUser(u)}
+                                                    disabled={updatingUserId === u.id}
+                                                >
+                                                    {updatingUserId === u.id ? "..." : "Modifier"}
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="destructive"
+                                                    className="ml-2"
+                                                    onClick={() => handleDeleteUser(u)}
+                                                    disabled={updatingUserId === u.id || currentUserId === u.id}
+                                                >
+                                                    Supprimer
+                                                </Button>
+                                            </div>
                                         </div>
                                     ))
                                 )}
@@ -621,36 +841,6 @@ export default function DashboardPage() {
                         </CardContent>
                     </Card>
 
-                    {/* AI Assistant Action Panel */}
-                    <Card className="col-span-4 lg:col-span-2 flex flex-col bg-gradient-to-b from-primary/5 to-background border-primary/20">
-                        <CardHeader className="text-center pb-2">
-                            <div className="mx-auto bg-primary/10 p-3 rounded-full mb-2 w-fit">
-                                <Bot className="h-8 w-8 text-primary" />
-                            </div>
-                            <CardTitle>Assistant Virtuel</CardTitle>
-                            <CardDescription>En ligne et prêt à aider</CardDescription>
-                        </CardHeader>
-                        <CardContent className="flex-1 flex flex-col items-center justify-center space-y-4 text-center">
-                            <div className="space-y-1">
-                                <div className="text-3xl font-bold tracking-tighter">98.5%</div>
-                                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Précision actuelle</div>
-                            </div>
-                            <p className="text-sm text-muted-foreground px-4">
-                                L&apos;IA gère actuellement la majorité des requêtes entrantes avec succès.
-                            </p>
-                        </CardContent>
-                        <CardContent className="pt-0">
-                            {/* BOUTON CONNECTÉ À L'API */}
-                            <Button 
-                                className="w-full" 
-                                size="lg" 
-                                onClick={handleCreateChat}
-                                disabled={isCreating}
-                            >
-                                {isCreating ? "Création en cours..." : "Démarrer une conversation de test"}
-                            </Button>
-                        </CardContent>
-                    </Card>
                 </div>
             </div>
         </div>

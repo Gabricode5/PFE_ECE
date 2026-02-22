@@ -33,10 +33,22 @@ class UserListResponse(BaseModel):
     id: int
     username: str
     email: EmailStr
+    prenom: Optional[str] = None
+    nom: Optional[str] = None
     role: str
 
     class Config:
         from_attributes = True
+
+class UserRoleUpdateRequest(BaseModel):
+    role: str
+
+class UserAdminUpdateRequest(BaseModel):
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
+    prenom: Optional[str] = None
+    nom: Optional[str] = None
+    role: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
