@@ -25,6 +25,13 @@ type ChatMessage = {
     createdAt: string
 }
 
+type BackendChatMessage = {
+    id?: number | string
+    type_envoyeur?: "user" | "ai" | "sav"
+    contenu?: string | null
+    date_creation?: string | null
+}
+
 function getAuthToken(): string | null {
     const tokenPair = document.cookie
         .split("; ")
@@ -50,11 +57,20 @@ export default function AiAssistantPage() {
     const [isSending, setIsSending] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [aiEnabled, setAiEnabled] = useState(true)
+    const [username, setUsername] = useState("Vous")
     const bottomRef = useRef<HTMLDivElement | null>(null)
 
-    const username = useMemo(() => {
-        if (typeof window === "undefined") return "Vous"
-        return localStorage.getItem("username") || "Vous"
+    const userInitials = useMemo(() => {
+        const base = username.trim()
+        if (!base) return "U"
+        return base.slice(0, 2).toUpperCase()
+    }, [username])
+
+    useEffect(() => {
+        const storedUsername = localStorage.getItem("username")
+        if (storedUsername?.trim()) {
+            setUsername(storedUsername)
+        }
     }, [])
 
     useEffect(() => {
@@ -76,7 +92,7 @@ export default function AiAssistantPage() {
                 const data = await response.json()
                 if (!Array.isArray(data)) return
 
-                const normalized: ChatMessage[] = data.map((item: any) => ({
+                const normalized: ChatMessage[] = (data as BackendChatMessage[]).map((item) => ({
                     id: String(item.id ?? makeId()),
                     role: item.type_envoyeur === "ai" ? "ai" : item.type_envoyeur === "sav" ? "sav" : "user",
                     content: item.contenu ?? "",
@@ -136,7 +152,7 @@ export default function AiAssistantPage() {
                     const data = await response.json()
                     setError(data?.detail || "Erreur lors de l'enregistrement du message.")
                 }
-            } catch (err) {
+            } catch {
                 setError("Impossible de contacter le serveur.")
             }
             return
@@ -194,7 +210,7 @@ export default function AiAssistantPage() {
     }
 
             setMessages((prev) => [...prev, aiMessage])
-        } catch (err) {
+        } catch {
             setError("Impossible de contacter le serveur IA.")
         } finally {
             setIsSending(false)
@@ -209,12 +225,12 @@ export default function AiAssistantPage() {
                     <div className="relative">
                         <Avatar className="h-10 w-10">
                             <AvatarImage src="/user-avatar.png" alt="User" />
-                            <AvatarFallback>JD</AvatarFallback>
+                            <AvatarFallback>{userInitials}</AvatarFallback>
                         </Avatar>
                         <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-green-500 border-2 border-background"></span>
                     </div>
                     <div>
-                        <h2 className="font-semibold text-sm">Jean Dupont (Session #{sessionId})</h2>
+                        <h2 className="font-semibold text-sm">{username} (Session #{sessionId})</h2>
                         <p className="text-xs text-muted-foreground flex items-center gap-1">
                             <span className="h-1.5 w-1.5 rounded-full bg-green-500"></span>
                             En ligne • Géré par IA
@@ -277,7 +293,7 @@ export default function AiAssistantPage() {
                     <div className="flex justify-start">
                         <div className="max-w-[70%] space-y-1">
                             <div className="rounded-2xl px-4 py-2 text-sm shadow-sm bg-background border">
-                                IA est en train d'ecrire...
+                                IA est en train d&apos;ecrire...
                             </div>
                         </div>
                     </div>

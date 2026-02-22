@@ -44,11 +44,19 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 # C'est le dossier que tu as créé avec ingest.py
 PERSIST_DIRECTORY = "./db_service_public"
 
+def sanitize_model_name(raw_value: str, fallback: str) -> str:
+    normalized = (raw_value or "").replace(";", ",").strip()
+    if not normalized:
+        return fallback
+    return normalized.split(",")[0].strip() or fallback
+
+# Modèle de génération (si une liste est fournie par erreur, on garde le premier).
+OLLAMA_MODEL = sanitize_model_name(os.getenv("OLLAMA_MODEL", "llama3.2:1b"), "llama3.2:1b")
+# Modèle d'embedding dédié.
+EMBED_MODEL = sanitize_model_name(os.getenv("EMBED_MODEL", "nomic-embed-text"), "nomic-embed-text")
+
 # Initialisation de la fonction d'embedding (doit être la même que dans ingest.py)
-embeddings = OllamaEmbeddings(model="llama3.2:1b", base_url=OLLAMA_URL)
-# Récupération des URLs depuis le docker-compose
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
+embeddings = OllamaEmbeddings(model=EMBED_MODEL, base_url=OLLAMA_URL)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
