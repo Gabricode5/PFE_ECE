@@ -10,6 +10,8 @@ sleep 5
 # 3. Pull le modèle
 echo "Téléchargement du modèle llama3.2:1b..."
 ollama pull llama3.2:1b
+echo "Téléchargement du modèle nomic-embed-text..."
+ollama pull nomic-embed-text
 
 echo "Installation terminée et modèle prêt !"
 

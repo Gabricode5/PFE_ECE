@@ -10,7 +10,6 @@ bcrypt==4.0.1
 python-jose[cryptography]
 email-validator>=2.0.0
 
-<<<<<<< HEAD
 #Communication et IA
 requests
 ollama
@@ -23,7 +22,3 @@ langchain-text-splitters
 #Base de données Vectorielle (RAG)
 chromadb
 langchain-ollama
-=======
-#pour lire les variables dans le .env
-python-dotenv
->>>>>>> e27369f649504c4e5b5c8dbbb8df71f52d1594ee

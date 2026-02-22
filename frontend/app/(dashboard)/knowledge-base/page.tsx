@@ -42,8 +42,17 @@ import {
     HelpCircle,
     Lightbulb,
     Cpu,
-    Upload
+    Upload,
+    Loader2
 } from "lucide-react"
+
+function getAuthToken(): string | null {
+    const tokenPair = document.cookie
+        .split("; ")
+        .find((entry) => entry.startsWith("auth_token="))
+    if (!tokenPair) return null
+    return tokenPair.split("=")[1] || null
+}
 
 export default function KnowledgeBasePage() {
     const [articles, setArticles] = useState(INITIAL_ARTICLES)
@@ -58,6 +67,46 @@ export default function KnowledgeBasePage() {
         tags: "",
         fileName: ""
     })
+    const [sourceUrl, setSourceUrl] = useState("https://www.service-public.fr/particuliers/vosdroits/F1342")
+    const [isIngesting, setIsIngesting] = useState(false)
+    const [ingestMessage, setIngestMessage] = useState<string | null>(null)
+    const [ingestError, setIngestError] = useState<string | null>(null)
+
+    const handleIngestUrl = async () => {
+        setIngestMessage(null)
+        setIngestError(null)
+
+        const token = getAuthToken()
+        if (!token) {
+            setIngestError("Session expirée. Veuillez vous reconnecter.")
+            return
+        }
+
+        setIsIngesting(true)
+        try {
+            const response = await fetch("http://localhost:8000/knowledge-base/ingest-url", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ url: sourceUrl }),
+            })
+
+            const data = await response.json()
+            if (!response.ok) {
+                setIngestError(data?.detail || "Impossible de lancer l'ingestion.")
+                return
+            }
+
+            setIngestMessage(`${data.inserted} contenus indexés depuis ${data.url}`)
+        } catch (error) {
+            console.error("Erreur ingestion URL:", error)
+            setIngestError("Erreur réseau pendant l'ingestion.")
+        } finally {
+            setIsIngesting(false)
+        }
+    }
 
     const handleAddArticle = () => {
         let summaryText = newArticle.summary
@@ -210,6 +259,24 @@ export default function KnowledgeBasePage() {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
+                </div>
+
+                <div className="rounded-xl border bg-card p-4 space-y-3">
+                    <Label htmlFor="source-url">Indexer une URL dans la base</Label>
+                    <div className="flex flex-col md:flex-row gap-3">
+                        <Input
+                            id="source-url"
+                            placeholder="https://..."
+                            value={sourceUrl}
+                            onChange={(e) => setSourceUrl(e.target.value)}
+                        />
+                        <Button onClick={handleIngestUrl} disabled={isIngesting || !sourceUrl.trim()}>
+                            {isIngesting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {isIngesting ? "Indexation..." : "Indexer URL"}
+                        </Button>
+                    </div>
+                    {ingestMessage && <p className="text-sm text-green-600">{ingestMessage}</p>}
+                    {ingestError && <p className="text-sm text-red-600">{ingestError}</p>}
                 </div>
 
                 {/* Filter Bar */}

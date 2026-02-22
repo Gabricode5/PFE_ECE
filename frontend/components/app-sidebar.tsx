@@ -9,8 +9,8 @@ import { cn } from "@/lib/utils"
 import {
     LayoutDashboard,
     BookOpen,
-    Bot,
     BarChart2,
+    Settings,
     LogOut,
     Plus,
     MessageSquare,
@@ -299,6 +299,17 @@ export function AppSidebar() {
                                 </Link>
                             </Button>
                         )}
+
+                        <Button
+                            variant={isActive("/settings") ? "secondary" : "ghost"}
+                            asChild
+                            className={cn("w-full justify-start", isActive("/settings") && "bg-sidebar-accent")}
+                        >
+                            <Link href="/settings">
+                                <Settings className="mr-3 h-4 w-4" />
+                                Paramètres
+                            </Link>
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -321,13 +332,25 @@ export function AppSidebar() {
                             {user.email}
                         </p>
                     </div>
-                    <button
-                        onClick={handleLogout}
-                        className="p-1.5 rounded-md text-sidebar-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-all"
-                        title="Se déconnecter"
-                    >
-                        <LogOut className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                        <Link
+                            href="/settings"
+                            className={cn(
+                                "p-1.5 rounded-md text-sidebar-foreground/40 hover:text-primary hover:bg-primary/10 transition-all",
+                                isActive("/settings") && "text-primary bg-primary/10"
+                            )}
+                            title="Modifier mon compte"
+                        >
+                            <Settings className="h-4 w-4" />
+                        </Link>
+                        <button
+                            onClick={handleLogout}
+                            className="p-1.5 rounded-md text-sidebar-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-all"
+                            title="Se déconnecter"
+                        >
+                            <LogOut className="h-4 w-4" />
+                        </button>
+                    </div>
                 </div>
             </div>
         </aside>

@@ -1,6 +1,6 @@
 #C'est la structure des données qui circulent (la validation Pydantic).
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, HttpUrl
 from datetime import datetime
 from typing import Optional
 
@@ -68,3 +68,33 @@ class ChatMessageResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class KnowledgeIngestRequest(BaseModel):
+    url: HttpUrl
+    category: Optional[str] = None
+
+class KnowledgeIngestResponse(BaseModel):
+    inserted: int
+    chunks: int
+    url: str
+    category: str
+    urls_scraped: int
+
+class MeResponse(BaseModel):
+    id: int
+    username: str
+    email: EmailStr
+    prenom: Optional[str] = None
+    nom: Optional[str] = None
+    role: str
+    date_creation: datetime
+
+class MeUpdateRequest(BaseModel):
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
+    prenom: Optional[str] = None
+    nom: Optional[str] = None
+
+class MePasswordUpdateRequest(BaseModel):
+    current_password: str
+    new_password: str

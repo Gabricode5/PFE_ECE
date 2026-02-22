@@ -45,10 +45,10 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 PERSIST_DIRECTORY = "./db_service_public"
 
 # Initialisation de la fonction d'embedding (doit être la même que dans ingest.py)
-embeddings = OllamaEmbeddings(model="mistral-small", base_url=OLLAMA_URL)
+embeddings = OllamaEmbeddings(model="llama3.2:1b", base_url=OLLAMA_URL)
 # Récupération des URLs depuis le docker-compose
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral-small")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
@@ -86,48 +86,48 @@ def is_admin_or_sav(user: models.Utilisateur | None):
 def read_root():
     return {"status": "Online", "message": "Le gestionnaire de tickets avec RAG est prêt"}
 
-@app.post("/ask")
-async def ask_question(question: str):
-    """Route qui va chercher dans la base de données avant de répondre"""
-    try:
-        # 1. RECHERCHE : On ouvre la base de données et on cherche les textes pertinents
-        vector_db = Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=embeddings)
-        docs = vector_db.similarity_search(question, k=3) # Récupère les 3 meilleurs morceaux
+# @app.post("/asks")
+# async def ask_question(question: str):
+#     """Route qui va chercher dans la base de données avant de répondre"""
+#     try:
+#         # 1. RECHERCHE : On ouvre la base de données et on cherche les textes pertinents
+#         vector_db = Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=embeddings)
+#         docs = vector_db.similarity_search(question, k=3) # Récupère les 3 meilleurs morceaux
         
-        # On combine les morceaux de texte trouvés
-        context = "\n".join([doc.page_content for doc in docs])
+#         # On combine les morceaux de texte trouvés
+#         context = "\n".join([doc.page_content for doc in docs])
         
-        # 2. PROMPT : On donne le contexte à Mistral pour qu'il réponde précisément
-        prompt_intelligent = f"""
-        Tu es un assistant expert du site Service-Public.fr. 
-        Utilise exclusivement les informations ci-dessous pour répondre à la question.
-        Si la réponse n'est pas dans le contexte, dis poliment que tu ne sais pas.
+#         # 2. PROMPT : On donne le contexte à llama3.2:1b pour qu'il réponde précisément
+#         prompt_intelligent = f"""
+#         Tu es un assistant expert du site Service-Public.fr. 
+#         Utilise exclusivement les informations ci-dessous pour répondre à la question.
+#         Si la réponse n'est pas dans le contexte, dis poliment que tu ne sais pas.
 
-        CONTEXTE RÉCUPÉRÉ :
-        {context}
+#         CONTEXTE RÉCUPÉRÉ :
+#         {context}
 
-        QUESTION DE L'UTILISATEUR :
-        {question}
-        """
+#         QUESTION DE L'UTILISATEUR :
+#         {question}
+#         """
 
-        # 3. GÉNÉRATION : Envoi à Ollama
-        payload = {
-            "model": "mistral-small",
-            "prompt": prompt_intelligent,
-            "stream": False
-        }
+#         # 3. GÉNÉRATION : Envoi à Ollama
+#         payload = {
+#             "model": "llama3.2:1b",
+#             "prompt": prompt_intelligent,
+#             "stream": False
+#         }
         
-        response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload)
-        response.raise_for_status()
-        result = response.json()
+#         response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload)
+#         response.raise_for_status()
+#         result = response.json()
         
-        return {
-            "answer": result["response"],
-            "source_used": "Service-Public.fr (RAG local)"
-        }
+#         return {
+#             "answer": result["response"],
+#             "source_used": "Service-Public.fr (RAG local)"
+#         }
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur IA : {str(e)}")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Erreur IA : {str(e)}")
 
 @app.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -197,6 +197,98 @@ def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
         "user_id": user.id,
         "nom_role": role_name # C'est cette valeur que ton frontend va utiliser
     }
+
+@app.get("/me", response_model=schemas.MeResponse)
+def read_me(current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = get_user_by_email(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    role_name = user.role.nom_role if user.role else "user"
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "prenom": user.prenom,
+        "nom": user.nom,
+        "role": role_name,
+        "date_creation": user.date_creation,
+    }
+
+@app.put("/me", response_model=schemas.MeResponse)
+def update_me(
+    payload: schemas.MeUpdateRequest,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = get_user_by_email(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    if payload.username is not None:
+        new_username = payload.username.strip()
+        if not new_username:
+            raise HTTPException(status_code=400, detail="Le username ne peut pas être vide")
+        existing_username = (
+            db.query(models.Utilisateur)
+            .filter(models.Utilisateur.username == new_username, models.Utilisateur.id != user.id)
+            .first()
+        )
+        if existing_username:
+            raise HTTPException(status_code=400, detail="Ce username est déjà utilisé")
+        user.username = new_username
+
+    if payload.email is not None:
+        new_email = payload.email.strip().lower()
+        existing_email = (
+            db.query(models.Utilisateur)
+            .filter(models.Utilisateur.email == new_email, models.Utilisateur.id != user.id)
+            .first()
+        )
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
+        user.email = new_email
+
+    if payload.prenom is not None:
+        user.prenom = payload.prenom.strip() if payload.prenom else None
+
+    if payload.nom is not None:
+        user.nom = payload.nom.strip() if payload.nom else None
+
+    db.commit()
+    db.refresh(user)
+
+    role_name = user.role.nom_role if user.role else "user"
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "prenom": user.prenom,
+        "nom": user.nom,
+        "role": role_name,
+        "date_creation": user.date_creation,
+    }
+
+@app.put("/me/password")
+def update_my_password(
+    payload: schemas.MePasswordUpdateRequest,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = get_user_by_email(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    if not pwd_context.verify(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
+
+    if len(payload.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Le nouveau mot de passe doit contenir au moins 6 caractères")
+
+    user.password_hash = pwd_context.hash(payload.new_password)
+    db.commit()
+
+    return {"message": "Mot de passe mis à jour"}
 
 @app.post("/sessions", response_model=schemas.ChatSessionResponse)
 def create_session(session_data: schemas.ChatSessionCreate, user_id: int, db: Session = Depends(get_db)):
@@ -325,6 +417,24 @@ def create_message(message: schemas.ChatMessageCreate, current_user: str = Depen
     db.commit()
     db.refresh(new_message)
     return new_message
+
+#Route qui permet à ingest_postgres de recupérer la route dynamiquement via le front
+@app.post("/knowledge-base/ingest-url", response_model=schemas.KnowledgeIngestResponse)
+def ingest_knowledge_base(
+    payload: schemas.KnowledgeIngestRequest,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    requester = get_user_by_email(db, current_user)
+    if not requester or not is_admin_or_sav(requester):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    try:
+        from ingest_postgres import ingest_to_postgres
+        result = ingest_to_postgres(url=str(payload.url), category=payload.category)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur ingestion: {str(e)}")
 
 @app.get("/check-ai")
 def check_ai():
