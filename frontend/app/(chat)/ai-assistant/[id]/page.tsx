@@ -1,12 +1,13 @@
-"use client" // Obligatoire pour l'interactivite
+"use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useParams } from "next/navigation" // Pour recuperer l'ID
+import { useParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import { Card } from "@/components/ui/card"
 import {
     MoreVertical,
     Search,
@@ -15,7 +16,11 @@ import {
     Paperclip,
     Smile,
     Image as ImageIcon,
-    Send
+    Send,
+    Bot,
+    MessageCircle,
+    Zap,
+    Sparkles
 } from "lucide-react"
 
 type ChatMessage = {
@@ -25,31 +30,36 @@ type ChatMessage = {
     createdAt: string
 }
 
-type BackendChatMessage = {
-    id?: number | string
-    type_envoyeur?: "user" | "ai" | "sav"
-    contenu?: string | null
-    date_creation?: string | null
-}
-
-function getAuthToken(): string | null {
-    const tokenPair = document.cookie
-        .split("; ")
-        .find((entry) => entry.startsWith("auth_token="))
-    if (!tokenPair) return null
-    return tokenPair.split("=")[1] || null
-}
-
-function makeId() {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-        return crypto.randomUUID()
-    }
-    return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-}
+const SUGGESTIONS = [
+    { 
+        title: "Analyser les sentiments", 
+        desc: "Le client est-il satisfait ?", 
+        icon: <Smile className="h-4 w-4 text-amber-500" />,
+        prompt: "Peux-tu analyser le sentiment dominant dans cette conversation ?"
+    },
+    { 
+        title: "Résumé du ticket", 
+        desc: "Synthèse des points clés", 
+        icon: <FileText className="h-4 w-4 text-blue-500" />,
+        prompt: "Fais-moi un résumé court et précis de ce ticket client."
+    },
+    { 
+        title: "Réponse suggérée", 
+        desc: "Générer une réponse type", 
+        icon: <MessageCircle className="h-4 w-4 text-emerald-500" />,
+        prompt: "Génère une réponse professionnelle et empathique pour ce client."
+    },
+    { 
+        title: "Actions suivantes", 
+        desc: "Quoi faire après ?", 
+        icon: <Zap className="h-4 w-4 text-purple-500" />,
+        prompt: "Quelles sont les prochaines étapes recommandées pour résoudre ce problème ?"
+    },
+];
 
 export default function AiAssistantPage() {
     const params = useParams()
-    const sessionId = Array.isArray(params.id) ? params.id[0] : params.id // On recupere le "4" de l'URL
+    const sessionId = Array.isArray(params.id) ? params.id[0] : params.id
     const sessionIdNumber = Number(sessionId)
 
     const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -57,294 +67,142 @@ export default function AiAssistantPage() {
     const [isSending, setIsSending] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [aiEnabled, setAiEnabled] = useState(true)
-    const [username, setUsername] = useState("Vous")
+    const [username, setUsername] = useState("Utilisateur")
     const bottomRef = useRef<HTMLDivElement | null>(null)
 
-    const userInitials = useMemo(() => {
-        const base = username.trim()
-        if (!base) return "U"
-        return base.slice(0, 2).toUpperCase()
-    }, [username])
-
     useEffect(() => {
-        const storedUsername = localStorage.getItem("username")
-        if (storedUsername?.trim()) {
-            setUsername(storedUsername)
-        }
+        const storedName = localStorage.getItem("username")
+        if (storedName) setUsername(storedName)
     }, [])
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" })
     }, [messages, isSending])
 
-    useEffect(() => {
-        if (!Number.isFinite(sessionIdNumber)) return
+    const handleSend = async (e?: React.FormEvent, customPrompt?: string) => {
+        if (e) e.preventDefault()
+        const text = customPrompt || input.trim()
+        if (!text || isSending) return
 
-        async function loadMessages() {
-            try {
-                const token = getAuthToken()
-                if (!token) return
-                const response = await fetch(
-                    `http://localhost:8000/messages?session_id=${sessionIdNumber}`,
-                    { headers: { Authorization: `Bearer ${token}` } }
-                )
-                if (!response.ok) return
-                const data = await response.json()
-                if (!Array.isArray(data)) return
-
-                const normalized: ChatMessage[] = (data as BackendChatMessage[]).map((item) => ({
-                    id: String(item.id ?? makeId()),
-                    role: item.type_envoyeur === "ai" ? "ai" : item.type_envoyeur === "sav" ? "sav" : "user",
-                    content: item.contenu ?? "",
-                    createdAt: item.date_creation
-                        ? new Date(item.date_creation).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-                        : new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-                }))
-                setMessages(normalized)
-            } catch (err) {
-                console.error("Erreur chargement messages :", err)
-            }
-        }
-
-        loadMessages()
-    }, [sessionIdNumber])
-
-    async function handleSend(event?: React.FormEvent) {
-        event?.preventDefault()
-        setError(null)
-
-        const trimmed = input.trim()
-        if (!trimmed || isSending) return
-
-        const userMessage: ChatMessage = {
-            id: makeId(),
+        const userMsg: ChatMessage = {
+            id: Date.now().toString(),
             role: "user",
-            content: trimmed,
+            content: text,
             createdAt: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
         }
 
-        setMessages((prev) => [...prev, userMessage])
+        setMessages(prev => [...prev, userMsg])
         setInput("")
-        if (!aiEnabled) {
-            try {
-                const token = getAuthToken()
-                if (!token) {
-                    setError("Session expirée. Veuillez vous reconnecter.")
-                    return
-                }
-                if (!Number.isFinite(sessionIdNumber)) {
-                    setError("Session invalide.")
-                    return
-                }
-                const response = await fetch("http://localhost:8000/messages", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                        id_session: sessionIdNumber,
-                        type_envoyeur: "user",
-                        contenu: trimmed
-                    })
-                })
-                if (!response.ok) {
-                    const data = await response.json()
-                    setError(data?.detail || "Erreur lors de l'enregistrement du message.")
-                }
-            } catch {
-                setError("Impossible de contacter le serveur.")
-            }
-            return
-        }
         setIsSending(true)
 
         try {
-            const token = getAuthToken()
-            if (!token) {
-                setError("Session expirée. Veuillez vous reconnecter.")
-                setIsSending(false)
-                return
-            }
-            if (!Number.isFinite(sessionIdNumber)) {
-                setError("Session invalide.")
-                setIsSending(false)
-                return
-            }
-
-            const response = await fetch(
-                `http://localhost:8000/ask?question=${encodeURIComponent(trimmed)}&session_id=${sessionIdNumber}`,
-                {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${token}`
-                    }
-                }
-            )
-
+            const response = await fetch(`http://localhost:8000/ask?question=${encodeURIComponent(text)}&session_id=${sessionIdNumber}`, {
+                method: "POST"
+            })
             const data = await response.json()
-            if (!response.ok) {
-                setError(data?.detail || data?.error || "Erreur lors de l'appel a l'IA.")
-                setIsSending(false)
-                return
+            
+            const aiMsg: ChatMessage = {
+                id: (Date.now() + 1).toString(),
+                role: "ai",
+                content: data.response || data.message || "Désolé, je n'ai pas pu traiter la demande.",
+                createdAt: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
             }
-
-            const aiText =
-                typeof data?.response === "string"
-                    ? data.response
-                    : typeof data?.message === "string"
-                    ? data.message
-                    : null
-
-            if (!aiText) {
-                setError("Reponse IA invalide.")
-                setIsSending(false)
-                return
-            }
-
-    const aiMessage: ChatMessage = {
-        id: makeId(),
-        role: "ai",
-        content: aiText,
-        createdAt: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-    }
-
-            setMessages((prev) => [...prev, aiMessage])
-        } catch {
-            setError("Impossible de contacter le serveur IA.")
+            setMessages(prev => [...prev, aiMsg])
+        } catch (err) {
+            setError("Erreur de connexion au serveur.")
         } finally {
             setIsSending(false)
         }
     }
 
     return (
-        <div className="flex flex-col h-full bg-muted/5">
-            {/* Chat Header */}
-            <header className="h-16 border-b bg-background flex items-center justify-between px-6 shrink-0 z-10">
+        <div className="flex flex-col h-full bg-slate-50/30">
+            <header className="h-16 border-b bg-white flex items-center justify-between px-6 shrink-0 shadow-sm">
                 <div className="flex items-center gap-3">
-                    <div className="relative">
-                        <Avatar className="h-10 w-10">
-                            <AvatarImage src="/user-avatar.png" alt="User" />
-                            <AvatarFallback>{userInitials}</AvatarFallback>
-                        </Avatar>
-                        <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-green-500 border-2 border-background"></span>
-                    </div>
+                    <Avatar className="h-10 w-10 border-2 border-primary/10">
+                        <AvatarFallback className="bg-primary/5 text-primary text-xs font-bold">{username.slice(0,2).toUpperCase()}</AvatarFallback>
+                    </Avatar>
                     <div>
-                        <h2 className="font-semibold text-sm">{username} (Session #{sessionId})</h2>
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-green-500"></span>
-                            En ligne • Géré par IA
+                        <h2 className="font-bold text-sm text-slate-800">{username} <span className="text-slate-400 font-normal ml-1">#S{sessionId}</span></h2>
+                        <p className="text-[11px] text-green-600 font-medium flex items-center gap-1">
+                            <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span> Assistant IA Actif
                         </p>
                     </div>
                 </div>
-                <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" className="text-muted-foreground">
-                        <FileText className="h-5 w-5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="text-muted-foreground">
-                        <Search className="h-5 w-5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="text-muted-foreground">
-                        <User className="h-5 w-5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="text-muted-foreground">
-                        <MoreVertical className="h-5 w-5" />
-                    </Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="icon" className="text-slate-400"><Search className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="text-slate-400"><MoreVertical className="h-4 w-4" /></Button>
                 </div>
             </header>
 
-            {/* Conversation Stream */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-6">
                 {messages.length === 0 ? (
-                    <div className="text-center text-[10px] text-muted-foreground opacity-50">
-                        Debut de la session de chat securisee
-                    </div>
-                ) : null}
-
-                {messages.map((message) => (
-                    <div
-                        key={message.id}
-                        className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                    >
-                        <div className={`max-w-[70%] space-y-1 ${message.role === "user" ? "items-end" : "items-start"}`}>
-                            <div
-                                className={`rounded-2xl px-4 py-2 text-sm shadow-sm ${
-                                    message.role === "user"
-                                        ? "bg-primary text-primary-foreground"
-                                        : message.role === "sav"
-                                        ? "bg-emerald-600 text-white"
-                                        : "bg-background border"
-                                }`}
-                            >
-                                {message.content}
+                    <div className="flex flex-col items-center justify-center h-full max-w-2xl mx-auto space-y-10">
+                        <div className="text-center space-y-4">
+                            <div className="bg-indigo-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto shadow-xl shadow-indigo-100 mb-6">
+                                <Bot className="h-9 w-9 text-white" />
                             </div>
-                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                                <span>
-                                    {message.role === "user" ? username : message.role === "sav" ? "Agent" : "IA"}
-                                </span>
-                                <span>•</span>
-                                <span>{message.createdAt}</span>
-                            </div>
+                            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Prêt à booster votre SAV ?</h1>
+                            <p className="text-slate-500 text-sm max-w-sm mx-auto">Choisissez une action rapide ou posez votre question ci-dessous.</p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full px-4">
+                            {SUGGESTIONS.map((s, i) => (
+                                <Card key={i} onClick={() => handleSend(undefined, s.prompt)} className="p-4 border-2 border-slate-100 hover:border-indigo-500 hover:shadow-lg transition-all cursor-pointer group bg-white">
+                                    <div className="flex items-start gap-4">
+                                        <div className="p-3 rounded-xl bg-slate-50 group-hover:bg-indigo-50 transition-colors">{s.icon}</div>
+                                        <div>
+                                            <div className="font-bold text-sm text-slate-800 group-hover:text-indigo-600 transition-colors">{s.title}</div>
+                                            <div className="text-[11px] text-slate-400">{s.desc}</div>
+                                        </div>
+                                    </div>
+                                </Card>
+                            ))}
                         </div>
                     </div>
-                ))}
-
-                {isSending ? (
-                    <div className="flex justify-start">
-                        <div className="max-w-[70%] space-y-1">
-                            <div className="rounded-2xl px-4 py-2 text-sm shadow-sm bg-background border">
-                                IA est en train d&apos;ecrire...
+                ) : (
+                    <div className="space-y-6 max-w-4xl mx-auto">
+                        {messages.map((m) => (
+                            <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                                <div className={`max-w-[80%] space-y-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
+                                    <div className={`rounded-2xl px-5 py-3 text-sm shadow-sm ${m.role === "user" ? "bg-indigo-600 text-white" : "bg-white border-2 border-slate-100 text-slate-700"}`}>
+                                        {m.content}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 font-bold px-2 uppercase tracking-tighter">
+                                        {m.role === "user" ? username : "Assistant IA"} • {m.createdAt}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        ))}
                     </div>
-                ) : null}
-
+                )}
                 <div ref={bottomRef} />
             </div>
 
-            {/* Input Area */}
-            <div className="p-6 pt-2 bg-background border-t shrink-0 space-y-3">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                        <Switch
-                            id="auto-ia"
-                            checked={aiEnabled}
-                            onCheckedChange={setAiEnabled}
+            <div className="p-6 bg-white border-t border-slate-100 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
+                <div className="max-w-4xl mx-auto space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+                            <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} className="data-[state=checked]:bg-indigo-600" />
+                            <span className="text-[11px] font-bold text-slate-500 uppercase">IA Active</span>
+                        </div>
+                        <Badge variant="outline" className="text-indigo-600 border-indigo-100 gap-1 text-[10px] py-1">
+                            <Sparkles className="h-3 w-3" /> Chiffrement actif
+                        </Badge>
+                    </div>
+                    <form onSubmit={handleSend} className="relative group">
+                        <Input
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            placeholder="Posez votre question à l'assistant..."
+                            className="h-14 pl-6 pr-24 rounded-2xl border-2 border-slate-100 focus-visible:ring-indigo-500 bg-slate-50/30 transition-all text-base"
                         />
-                        <label htmlFor="auto-ia">Assistant IA actif</label>
-                    </div>
-                    <Badge variant="secondary">Mode securise</Badge>
+                        <div className="absolute right-2 top-2 flex items-center gap-1">
+                            <Button type="submit" disabled={isSending || !input.trim()} size="sm" className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all">
+                                <Send className="h-4 w-4 mr-2" /> {isSending ? "Calcul..." : "Analyser"}
+                            </Button>
+                        </div>
+                    </form>
                 </div>
-
-                {error ? (
-                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
-                        {error}
-                    </div>
-                ) : null}
-
-                <form onSubmit={handleSend} className="flex items-center gap-2">
-                    <Button type="button" variant="ghost" size="icon" className="text-muted-foreground">
-                        <Paperclip className="h-4 w-4" />
-                    </Button>
-                    <Button type="button" variant="ghost" size="icon" className="text-muted-foreground">
-                        <ImageIcon className="h-4 w-4" />
-                    </Button>
-                    <Button type="button" variant="ghost" size="icon" className="text-muted-foreground">
-                        <Smile className="h-4 w-4" />
-                    </Button>
-
-                    <Input
-                        value={input}
-                        onChange={(event) => setInput(event.target.value)}
-                        placeholder="Ecrivez votre message..."
-                        className="flex-1"
-                    />
-
-                    <Button type="submit" disabled={isSending || !input.trim()} className="gap-2">
-                        <Send className="h-4 w-4" />
-                        {aiEnabled ? "Envoyer" : "Envoyer (IA off)"}
-                    </Button>
-                </form>
             </div>
         </div>
     )
