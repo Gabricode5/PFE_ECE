@@ -101,7 +101,7 @@ export default function DashboardPage() {
             }
 
             try {
-                const response = await fetch(`http://localhost:8000/sessions?user_id=${userId}`, {
+                const response = await fetch(`/api/sessions?user_id=${userId}`, {
                     headers: { Authorization: `Bearer ${token}` }
                 })
                 if (!response.ok) {
@@ -134,13 +134,13 @@ export default function DashboardPage() {
 
         try {
             const [usersRes, savRes, adminsRes] = await Promise.all([
-                fetch("http://localhost:8000/users?role=user", {
+                fetch("/api/users?role=user", {
                     headers: { Authorization: `Bearer ${token}` }
                 }),
-                fetch("http://localhost:8000/users?role=sav", {
+                fetch("/api/users?role=sav", {
                     headers: { Authorization: `Bearer ${token}` }
                 }),
-                fetch("http://localhost:8000/users?role=admin", {
+                fetch("/api/users?role=admin", {
                     headers: { Authorization: `Bearer ${token}` }
                 })
             ])
@@ -180,7 +180,7 @@ export default function DashboardPage() {
 
         setUpdatingRoleUserId(userItem.id)
         try {
-            const response = await fetch(`http://localhost:8000/users/${userItem.id}/role`, {
+            const response = await fetch(`/api/users/${userItem.id}/role`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -229,7 +229,7 @@ export default function DashboardPage() {
 
         setUpdatingUserId(userItem.id)
         try {
-            const response = await fetch(`http://localhost:8000/users/${userItem.id}`, {
+            const response = await fetch(`/api/users/${userItem.id}`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -275,7 +275,7 @@ export default function DashboardPage() {
 
         setUpdatingUserId(userItem.id)
         try {
-            const response = await fetch(`http://localhost:8000/users/${userItem.id}`, {
+            const response = await fetch(`/api/users/${userItem.id}`, {
                 method: "DELETE",
                 headers: { Authorization: `Bearer ${token}` }
             })
@@ -315,7 +315,7 @@ export default function DashboardPage() {
         }
 
         try {
-            const response = await fetch(`http://localhost:8000/sessions?user_id=${userItem.id}`, {
+            const response = await fetch(`/api/sessions?user_id=${userItem.id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             })
             if (!response.ok) {
@@ -342,7 +342,7 @@ export default function DashboardPage() {
         }
 
         try {
-            const response = await fetch(`http://localhost:8000/messages?session_id=${sessionItem.id}`, {
+            const response = await fetch(`/api/messages?session_id=${sessionItem.id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             })
             if (!response.ok) {
@@ -376,7 +376,7 @@ export default function DashboardPage() {
         }
 
         try {
-            const response = await fetch("http://localhost:8000/messages", {
+            const response = await fetch("/api/messages", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

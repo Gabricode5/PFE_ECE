@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Card } from "@/components/ui/card"
@@ -12,10 +12,7 @@ import {
     MoreVertical,
     Search,
     FileText,
-    User,
-    Paperclip,
     Smile,
-    Image as ImageIcon,
     Send,
     Bot,
     MessageCircle,
@@ -28,6 +25,25 @@ type ChatMessage = {
     role: "user" | "ai" | "sav"
     content: string
     createdAt: string
+}
+
+type BackendChatMessage = {
+    id?: number | string
+    type_envoyeur: "user" | "ai" | "sav"
+    contenu?: string | null
+    date_creation?: string | null
+}
+
+function getAuthToken(): string | null {
+    const tokenPair = document.cookie
+        .split("; ")
+        .find((entry) => entry.startsWith("auth_token="))
+    if (!tokenPair) return null
+    return tokenPair.split("=")[1] || null
+}
+
+function makeId(): string {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 const SUGGESTIONS = [
@@ -79,30 +95,116 @@ export default function AiAssistantPage() {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" })
     }, [messages, isSending])
 
-    const handleSend = async (e?: React.FormEvent, customPrompt?: string) => {
-        if (e) e.preventDefault()
-        const text = customPrompt || input.trim()
-        if (!text || isSending) return
+    useEffect(() => {
+        async function loadMessages() {
+            if (!Number.isFinite(sessionIdNumber)) return
+            try {
+                const token = getAuthToken()
+                if (!token) return
+                const response = await fetch(
+                    `/api/messages?session_id=${sessionIdNumber}`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                )
+                if (!response.ok) return
+                const data = await response.json()
+                if (!Array.isArray(data)) return
 
-        const userMsg: ChatMessage = {
-            id: Date.now().toString(),
+                const normalized: ChatMessage[] = (data as BackendChatMessage[]).map((item) => ({
+                    id: String(item.id ?? makeId()),
+                    role: item.type_envoyeur === "ai" ? "ai" : item.type_envoyeur === "sav" ? "sav" : "user",
+                    content: item.contenu ?? "",
+                    createdAt: item.date_creation
+                        ? new Date(item.date_creation).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+                        : new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+                }))
+                setMessages(normalized)
+            } catch (err) {
+                console.error("Erreur chargement messages :", err)
+            }
+        }
+
+        loadMessages()
+    }, [sessionIdNumber])
+
+    const handleSend = async (event?: React.FormEvent, customPrompt?: string) => {
+        event?.preventDefault()
+        setError(null)
+
+        const trimmed = (customPrompt ?? input).trim()
+        if (!trimmed || isSending) return
+
+        const userMessage: ChatMessage = {
+            id: makeId(),
             role: "user",
-            content: text,
+            content: trimmed,
             createdAt: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
         }
 
-        setMessages(prev => [...prev, userMsg])
+        setMessages(prev => [...prev, userMessage])
         setInput("")
+
+        if (!aiEnabled) {
+            try {
+                const token = getAuthToken()
+                if (!token) {
+                    setError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
+                if (!Number.isFinite(sessionIdNumber)) {
+                    setError("Session invalide.")
+                    return
+                }
+                const response = await fetch("/api/messages", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        id_session: sessionIdNumber,
+                        type_envoyeur: "user",
+                        contenu: trimmed
+                    })
+                })
+                if (!response.ok) {
+                    const data = await response.json()
+                    setError(data?.detail || "Erreur lors de l'enregistrement du message.")
+                }
+            } catch {
+                setError("Impossible de contacter le serveur.")
+            }
+            return
+        }
+
         setIsSending(true)
 
         try {
-            const response = await fetch(`http://localhost:8000/ask?question=${encodeURIComponent(text)}&session_id=${sessionIdNumber}`, {
-                method: "POST"
-            })
+            const token = getAuthToken()
+            if (!token) {
+                setError("Session expirée. Veuillez vous reconnecter.")
+                setIsSending(false)
+                return
+            }
+            if (!Number.isFinite(sessionIdNumber)) {
+                setError("Session invalide.")
+                setIsSending(false)
+                return
+            }
+
+            const response = await fetch(
+                `/api/ask?question=${encodeURIComponent(trimmed)}&session_id=${sessionIdNumber}`,
+                {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                }
+            )
+
             const data = await response.json()
-            
+
             const aiMsg: ChatMessage = {
-                id: (Date.now() + 1).toString(),
+                id: makeId(),
                 role: "ai",
                 content: data.response || data.message || "Désolé, je n'ai pas pu traiter la demande.",
                 createdAt: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })

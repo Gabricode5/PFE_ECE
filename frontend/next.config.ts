@@ -1,7 +1,18 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async rewrites() {
+    const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiUrl = rawApiUrl.startsWith("http://") || rawApiUrl.startsWith("https://")
+      ? rawApiUrl
+      : `https://${rawApiUrl}`;
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${apiUrl}/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

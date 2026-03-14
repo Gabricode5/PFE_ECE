@@ -68,7 +68,7 @@ export function AppSidebar() {
 
         setIsLoadingConversations(true)
         try {
-            const response = await fetch(`http://localhost:8000/sessions?user_id=${userId}`, {
+            const response = await fetch(`/api/sessions?user_id=${userId}`, {
                 headers: { Authorization: `Bearer ${token}` }
             })
             if (!response.ok) return
@@ -110,7 +110,7 @@ export function AppSidebar() {
         const finalTitle = normalizedLabel ? `${normalizedLabel} - ${normalizedTitle}` : normalizedTitle
 
         try {
-            const response = await fetch(`http://localhost:8000/sessions?user_id=${userId}`, {
+            const response = await fetch(`/api/sessions?user_id=${userId}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -132,7 +132,7 @@ export function AppSidebar() {
         if (!confirmed) return
 
         try {
-            const response = await fetch(`http://localhost:8000/sessions/${conversationId}`, {
+            const response = await fetch(`/api/sessions/${conversationId}`, {
                 method: "DELETE"
             })
 

@@ -84,7 +84,7 @@ export default function KnowledgeBasePage() {
 
         setIsIngesting(true)
         try {
-            const response = await fetch("http://localhost:8000/knowledge-base/ingest-url", {
+            const response = await fetch("/api/knowledge-base/ingest-url", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

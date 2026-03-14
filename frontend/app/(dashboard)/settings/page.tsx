@@ -57,7 +57,7 @@ export default function SettingsPage() {
             }
 
             try {
-                const response = await fetch("http://localhost:8000/me", {
+                const response = await fetch("/api/me", {
                     headers: { Authorization: `Bearer ${token}` },
                 })
                 if (!response.ok) {
@@ -95,7 +95,7 @@ export default function SettingsPage() {
 
         setSavingProfile(true)
         try {
-            const response = await fetch("http://localhost:8000/me", {
+            const response = await fetch("/api/me", {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -147,7 +147,7 @@ export default function SettingsPage() {
 
         setSavingPassword(true)
         try {
-            const response = await fetch("http://localhost:8000/me/password", {
+            const response = await fetch("/api/me/password", {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
