@@ -101,14 +101,6 @@ export function AppSidebar() {
             return
         }
 
-        const titleInput = window.prompt("Titre de la conversation :", "Nouvelle conversation")
-        if (titleInput === null) return
-        const labelInput = window.prompt("Libellé (optionnel) :", "")
-        if (labelInput === null) return
-        const normalizedTitle = titleInput.trim() || "Nouvelle conversation"
-        const normalizedLabel = labelInput.trim()
-        const finalTitle = normalizedLabel ? `${normalizedLabel} - ${normalizedTitle}` : normalizedTitle
-
         try {
             const response = await fetch(`/api/sessions?user_id=${userId}`, {
                 method: "POST",
@@ -116,7 +108,8 @@ export function AppSidebar() {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify({ title: finalTitle }),
+                // Laisse le backend gérer le titre automatiquement.
+                body: JSON.stringify({}),
             })
 
             if (!response.ok) return
@@ -130,10 +123,16 @@ export function AppSidebar() {
     const handleDeleteConversation = async (conversationId: string) => {
         const confirmed = window.confirm("Supprimer cette conversation ?")
         if (!confirmed) return
+        const token = getAuthToken()
+        if (!token) {
+            window.location.href = "/login"
+            return
+        }
 
         try {
             const response = await fetch(`/api/sessions/${conversationId}`, {
-                method: "DELETE"
+                method: "DELETE",
+                headers: { Authorization: `Bearer ${token}` }
             })
 
             if (!response.ok) return

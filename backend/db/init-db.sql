@@ -64,6 +64,7 @@ CREATE TABLE chat_sessions (
     id SERIAL PRIMARY KEY,                                    -- Identifiant de la session
     id_utilisateur INTEGER REFERENCES utilisateur(id) ON DELETE CASCADE, -- Propriétaire session
     title VARCHAR(255),                                       -- Titre session
+    status VARCHAR(20) NOT NULL DEFAULT 'open',               -- Statut (open/closed)
     date_creation TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP -- Date de création
 );
 

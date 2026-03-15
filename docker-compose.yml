@@ -86,7 +86,10 @@ services:
     restart: unless-stopped
   
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:8000
     container_name: ticket-ai-frontend
     ports:
       - "3005:3005" 

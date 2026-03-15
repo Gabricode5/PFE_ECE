@@ -11,7 +11,6 @@ class UserCreate(BaseModel):
     password: str
     prenom: Optional[str] = None
     nom: Optional[str] = None
-    id_role: int
 
     class Config:
         from_attributes = True
@@ -61,6 +60,7 @@ class ChatSessionResponse(BaseModel):
     id: int
     id_utilisateur: int
     title: Optional[str]
+    status: str
     date_creation: datetime
 
     class Config:
@@ -110,3 +110,9 @@ class MeUpdateRequest(BaseModel):
 class MePasswordUpdateRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class AskRequest(BaseModel):
+    question: str
+    session_id: int
+    mode: str = "rag_llm"

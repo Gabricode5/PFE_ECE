@@ -191,25 +191,50 @@ export default function AiAssistantPage() {
                 return
             }
 
-            const response = await fetch(
-                `/api/ask?question=${encodeURIComponent(trimmed)}&session_id=${sessionIdNumber}`,
-                {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${token}`
+            const aiMessageId = makeId()
+            const aiCreatedAt = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+            setMessages(prev => [
+                ...prev,
+                { id: aiMessageId, role: "ai", content: "", createdAt: aiCreatedAt }
+            ])
+
+            const response = await fetch("/api/ask/stream", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    question: trimmed,
+                    session_id: sessionIdNumber,
+                    mode: "rag_llm"
+                })
+            })
+
+            if (!response.ok || !response.body) {
+                setError("Erreur de connexion au serveur.")
+                setIsSending(false)
+                return
+            }
+
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let done = false
+
+            while (!done) {
+                const result = await reader.read()
+                done = result.done
+                if (result.value) {
+                    const chunk = decoder.decode(result.value, { stream: true })
+                    if (chunk) {
+                        setMessages(prev =>
+                            prev.map((m) =>
+                                m.id === aiMessageId ? { ...m, content: m.content + chunk } : m
+                            )
+                        )
                     }
                 }
-            )
-
-            const data = await response.json()
-
-            const aiMsg: ChatMessage = {
-                id: makeId(),
-                role: "ai",
-                content: data.response || data.message || "Désolé, je n'ai pas pu traiter la demande.",
-                createdAt: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
             }
-            setMessages(prev => [...prev, aiMsg])
         } catch (err) {
             setError("Erreur de connexion au serveur.")
         } finally {
@@ -267,7 +292,15 @@ export default function AiAssistantPage() {
                             <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                                 <div className={`max-w-[80%] space-y-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
                                     <div className={`rounded-2xl px-5 py-3 text-sm shadow-sm ${m.role === "user" ? "bg-indigo-600 text-white" : "bg-white border-2 border-slate-100 text-slate-700"}`}>
-                                        {m.content}
+                                        {m.content ? (
+                                            m.content
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1">
+                                                <span className="h-2 w-2 rounded-full bg-slate-400/70 animate-bounce [animation-delay:-0.2s]" />
+                                                <span className="h-2 w-2 rounded-full bg-slate-400/70 animate-bounce" />
+                                                <span className="h-2 w-2 rounded-full bg-slate-400/70 animate-bounce [animation-delay:0.2s]" />
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="text-[10px] text-slate-400 font-bold px-2 uppercase tracking-tighter">
                                         {m.role === "user" ? username : "Assistant IA"} • {m.createdAt}

@@ -34,6 +34,7 @@ type SessionItem = {
     id: number
     title?: string | null
     date_creation?: string | null
+    status?: string | null
 }
 
 type MessageItem = {
@@ -78,6 +79,7 @@ export default function DashboardPage() {
     const [isLoadingUser, setIsLoadingUser] = useState(false)
     const [userError, setUserError] = useState<string | null>(null)
     const [currentUserId, setCurrentUserId] = useState<number | null>(null)
+    const [closingSessionId, setClosingSessionId] = useState<number | null>(null)
 
     useEffect(() => {
         const storedRole = localStorage.getItem("user_role") || "user"
@@ -365,6 +367,54 @@ export default function DashboardPage() {
         }
     }
 
+    const handleCloseSession = async (sessionItem: SessionItem) => {
+        const token = getAuthToken()
+        if (!token) {
+            setAdminError("Session expirée. Veuillez vous reconnecter.")
+            setUserError("Session expirée. Veuillez vous reconnecter.")
+            return
+        }
+
+        const confirmed = window.confirm(`Clôturer la session #${sessionItem.id} ?`)
+        if (!confirmed) return
+
+        setClosingSessionId(sessionItem.id)
+        try {
+            const response = await fetch(`/api/sessions/${sessionItem.id}/close`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            if (!response.ok) {
+                const data = await response.json()
+                const message = data?.detail || "Impossible de clôturer la session."
+                setAdminError(message)
+                setUserError(message)
+                return
+            }
+
+            if (role === "admin" && selectedUser) {
+                await handleSelectUser(selectedUser)
+            } else {
+                const userId = localStorage.getItem("user_id")
+                if (userId) {
+                    const refresh = await fetch(`/api/sessions?user_id=${userId}`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    })
+                    if (refresh.ok) {
+                        const data = await refresh.json()
+                        setUserSessions(data)
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Erreur clôture session :", error)
+            setAdminError("Erreur réseau.")
+            setUserError("Erreur réseau.")
+        } finally {
+            setClosingSessionId(null)
+        }
+    }
+
     const handleReply = async () => {
         const trimmed = reply.trim()
         if (!trimmed || !selectedSession) return
@@ -618,6 +668,22 @@ export default function DashboardPage() {
                                         >
                                             <div className="text-sm font-medium">{s.title || "Sans titre"}</div>
                                             <div className="text-xs text-muted-foreground">Session #{s.id}</div>
+                                            <div className="mt-2 flex items-center gap-2">
+                                                <Badge variant="secondary" className={`${s.status === "closed" ? "bg-slate-200 text-slate-700" : "bg-emerald-100 text-emerald-700"} border-0`}>
+                                                    {s.status === "closed" ? "Clôturée" : "Ouverte"}
+                                                </Badge>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation()
+                                                        handleCloseSession(s)
+                                                    }}
+                                                    disabled={closingSessionId === s.id || s.status === "closed"}
+                                                >
+                                                    {closingSessionId === s.id ? "..." : "Clôturer"}
+                                                </Button>
+                                            </div>
                                         </button>
                                     ))
                                 )}
@@ -803,10 +869,18 @@ export default function DashboardPage() {
                                     <div className="text-sm text-muted-foreground">Aucune conversation.</div>
                                 ) : (
                                     filteredSessions.map((session) => (
-                                        <button
+                                        <div
                                             key={session.id}
+                                            role="button"
+                                            tabIndex={0}
                                             onClick={() => router.push(`/ai-assistant/${session.id}`)}
-                                            className="w-full flex items-center justify-between rounded-md border border-transparent hover:border-muted hover:bg-muted/30 px-3 py-2 transition"
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault()
+                                                    router.push(`/ai-assistant/${session.id}`)
+                                                }
+                                            }}
+                                            className="w-full flex items-center justify-between rounded-md border border-transparent hover:border-muted hover:bg-muted/30 px-3 py-2 transition cursor-pointer"
                                         >
                                             <div className="flex items-center gap-4">
                                                 <Avatar className="h-10 w-10 border">
@@ -829,12 +903,26 @@ export default function DashboardPage() {
                                                         ? new Date(session.date_creation).toLocaleDateString("fr-FR")
                                                         : "—"}
                                                 </span>
+                                                <Badge variant="secondary" className={`${session.status === "closed" ? "bg-slate-200 text-slate-700" : "bg-emerald-100 text-emerald-700"} border-0`}>
+                                                    {session.status === "closed" ? "Clôturée" : "Ouverte"}
+                                                </Badge>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation()
+                                                        handleCloseSession(session)
+                                                    }}
+                                                    disabled={closingSessionId === session.id || session.status === "closed"}
+                                                >
+                                                    {closingSessionId === session.id ? "..." : "Clôturer"}
+                                                </Button>
                                                 <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/15 border-0">
                                                     <Bot className="h-3 w-3 mr-1" />
                                                     IA Autonome
                                                 </Badge>
                                             </div>
-                                        </button>
+                                        </div>
                                     ))
                                 )}
                             </div>

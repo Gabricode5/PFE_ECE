@@ -1,16 +1,16 @@
 #déclares tes fonctions API (tes routes @app.post, @app.get, etc.).
 
 from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.responses import StreamingResponse
 import requests
 import os
-# On ajoute ces imports pour lire la base de données vectorielle
-from langchain_community.vectorstores import Chroma
 from langchain_ollama import OllamaEmbeddings
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 import models, schemas
 from database import engine, get_db
 from datetime import datetime, timedelta
+import json
 from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
@@ -51,8 +51,14 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # CONFIGURATION
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-# C'est le dossier que tu as créé avec ingest.py
-PERSIST_DIRECTORY = "./db_service_public"
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))
+KB_TOP_K = int(os.getenv("KB_TOP_K", "4"))
+KB_MAX_CONTEXT_CHARS = int(os.getenv("KB_MAX_CONTEXT_CHARS", "3000"))
+SUMMARY_MAX_CHARS = int(os.getenv("SUMMARY_MAX_CHARS", "4000"))
+SUMMARY_MAX_MESSAGES = int(os.getenv("SUMMARY_MAX_MESSAGES", "50"))
+
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY manquante. Définis-la dans l'environnement.")
 
 def sanitize_model_name(raw_value: str, fallback: str) -> str:
     normalized = (raw_value or "").replace(";", ",").strip()
@@ -104,49 +110,6 @@ def is_admin_or_sav(user: models.Utilisateur | None):
 def read_root():
     return {"status": "Online", "message": "Le gestionnaire de tickets avec RAG est prêt"}
 
-# @app.post("/asks")
-# async def ask_question(question: str):
-#     """Route qui va chercher dans la base de données avant de répondre"""
-#     try:
-#         # 1. RECHERCHE : On ouvre la base de données et on cherche les textes pertinents
-#         vector_db = Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=embeddings)
-#         docs = vector_db.similarity_search(question, k=3) # Récupère les 3 meilleurs morceaux
-        
-#         # On combine les morceaux de texte trouvés
-#         context = "\n".join([doc.page_content for doc in docs])
-        
-#         # 2. PROMPT : On donne le contexte à llama3.2:1b pour qu'il réponde précisément
-#         prompt_intelligent = f"""
-#         Tu es un assistant expert du site Service-Public.fr. 
-#         Utilise exclusivement les informations ci-dessous pour répondre à la question.
-#         Si la réponse n'est pas dans le contexte, dis poliment que tu ne sais pas.
-
-#         CONTEXTE RÉCUPÉRÉ :
-#         {context}
-
-#         QUESTION DE L'UTILISATEUR :
-#         {question}
-#         """
-
-#         # 3. GÉNÉRATION : Envoi à Ollama
-#         payload = {
-#             "model": "llama3.2:1b",
-#             "prompt": prompt_intelligent,
-#             "stream": False
-#         }
-        
-#         response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload)
-#         response.raise_for_status()
-#         result = response.json()
-        
-#         return {
-#             "answer": result["response"],
-#             "source_used": "Service-Public.fr (RAG local)"
-#         }
-
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Erreur IA : {str(e)}")
-
 @app.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     # 1. Vérifier si l'email existe déjà
@@ -157,23 +120,28 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     # 2. Hacher le mot de passe
     hashed_password = pwd_context.hash(user.password)
 
-    # 3. Créer l'objet Utilisateur (on utilise user.id_role qui vient du schéma)
+    # 3. Forcer un role serveur (pas depuis le client)
+    default_role = db.query(models.Role).filter(models.Role.nom_role == "user").first()
+    if not default_role:
+        raise HTTPException(status_code=500, detail="Rôle par défaut introuvable")
+
+    # 4. Créer l'objet Utilisateur
     new_user = models.Utilisateur(
         username=user.username,
         email=user.email,
         password_hash=hashed_password,
         prenom=user.prenom,
         nom=user.nom,
-        id_role=user.id_role  # Utilise la valeur du schéma (ex: 1)
+        id_role=default_role.id,
     )
 
-    # 4. Sauvegarde
+    # 5. Sauvegarde
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
 
     role_name = db.query(models.Role.nom_role).filter(models.Role.id == new_user.id_role).scalar() or "user"
-    # 5. Retourner la réponse (doit correspondre à schemas.UserResponse)
+    # 6. Retourner la réponse (doit correspondre à schemas.UserResponse)
     return {
         "id": new_user.id,
         "username": new_user.username,
@@ -309,11 +277,22 @@ def update_my_password(
     return {"message": "Mot de passe mis à jour"}
 
 @app.post("/sessions", response_model=schemas.ChatSessionResponse)
-def create_session(session_data: schemas.ChatSessionCreate, user_id: int, db: Session = Depends(get_db)):
+def create_session(
+    session_data: schemas.ChatSessionCreate,
+    user_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     # 1. Vérifier si l'utilisateur existe
     user = db.query(models.Utilisateur).filter(models.Utilisateur.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    requester = get_user_by_email(db, current_user)
+    if not requester:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    if not is_admin_or_sav(requester) and requester.id != user_id:
+        raise HTTPException(status_code=403, detail="Accès refusé")
 
     # 2. Créer la nouvelle session
     new_session = models.ChatSession(
@@ -354,15 +333,112 @@ def list_sessions(
     return sessions
 
 @app.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_session(session_id: int, db: Session = Depends(get_db)):
+def delete_session(
+    session_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session non trouvée")
 
+    requester = get_user_by_email(db, current_user)
+    if not requester:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    if not is_admin_or_sav(requester) and session.id_utilisateur != requester.id:
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    # Sécurité: supprime explicitement les messages si la cascade DB n'est pas active.
+    db.query(models.ChatMessage).filter(models.ChatMessage.id_session == session_id).delete(synchronize_session=False)
     db.delete(session)
     db.commit()
 
     return
+
+@app.post("/sessions/{session_id}/close", response_model=schemas.ChatSessionResponse)
+def close_session(
+    session_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    requester = get_user_by_email(db, current_user)
+    if not requester:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    if not is_admin_or_sav(requester) and session.id_utilisateur != requester.id:
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    if getattr(session, "status", "open") == "closed":
+        return session
+
+    messages = (
+        db.query(models.ChatMessage)
+        .filter(models.ChatMessage.id_session == session_id)
+        .order_by(models.ChatMessage.date_creation.asc())
+        .limit(SUMMARY_MAX_MESSAGES)
+        .all()
+    )
+
+    transcript_parts = []
+    for msg in messages:
+        if not msg.contenu:
+            continue
+        transcript_parts.append(f"{msg.type_envoyeur.upper()}: {msg.contenu}")
+    transcript = "\n".join(transcript_parts)[:SUMMARY_MAX_CHARS]
+
+    if not transcript:
+        summary_text = "Ticket clos sans message."
+    else:
+        summary_prompt = f"""
+Tu es un agent SAV. Résume ce ticket en 5 à 8 lignes maximum.
+Inclue: problème principal, actions tentées, solution finale (si connue).
+
+TRANSCRIPT:
+{transcript}
+""".strip()
+        summary_text = ""
+        try:
+            summary_payload = {
+                "model": OLLAMA_MODEL,
+                "prompt": summary_prompt,
+                "stream": False
+            }
+            summary_resp = requests.post(
+                f"{OLLAMA_URL}/api/generate",
+                json=summary_payload,
+                timeout=REQUEST_TIMEOUT
+            )
+            if summary_resp.ok:
+                summary_data = summary_resp.json()
+                summary_text = summary_data.get("response") if isinstance(summary_data, dict) else ""
+        except Exception as e:
+            print(f"DEBUG: summary error -> {e}")
+
+        if not summary_text:
+            first = transcript_parts[0] if transcript_parts else ""
+            last = transcript_parts[-1] if transcript_parts else ""
+            summary_text = "Résumé court du ticket:\n" + "\n".join([p for p in [first, last] if p])
+
+    # Indexation du résumé dans la base de connaissances
+    try:
+        summary_embedding = embeddings.embed_query(summary_text)
+        kb_row = models.KnowledgeBase(
+            source_message_id=None,
+            contenu=f"Résumé session #{session_id} (user_id={session.id_utilisateur})\n{summary_text}",
+            embedding=summary_embedding,
+            category="ticket_summary",
+        )
+        db.add(kb_row)
+    except Exception as e:
+        print(f"DEBUG: KB insert error -> {e}")
+
+    session.status = "closed"
+    db.commit()
+    db.refresh(session)
+    return session
 
 @app.get("/users", response_model=list[schemas.UserListResponse])
 def list_users(
@@ -591,7 +667,7 @@ def ingest_knowledge_base(
 @app.get("/check-ai")
 def check_ai():
     try:
-        response = requests.get(f"{OLLAMA_URL}/api/tags")
+        response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=REQUEST_TIMEOUT)
         return {"ollama_connected": True, "models": response.json()}
     except Exception as e:
         return {"ollama_connected": False, "error": str(e)}
@@ -601,6 +677,7 @@ def check_ai():
 async def ask_question(
     question: str,
     session_id: int,
+    mode: str = "rag_llm",
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -625,12 +702,59 @@ async def ask_question(
     db.commit()
     db.refresh(user_message)
 
+    # Auto-titre: si la session n'a pas de titre, on utilise la 1ère question.
+    if not session.title or not session.title.strip() or session.title.strip().lower() == "nouvelle conversation":
+        auto_title = question.strip().replace("\n", " ")
+        if auto_title:
+            session.title = auto_title[:80]
+            db.commit()
+
+    # Récupération de contexte depuis la base de connaissances (RAG)
+    context = ""
+    try:
+        query_embedding = embeddings.embed_query(question)
+        kb_rows = (
+            db.query(models.KnowledgeBase)
+            .order_by(models.KnowledgeBase.embedding.cosine_distance(query_embedding))
+            .limit(KB_TOP_K)
+            .all()
+        )
+        if kb_rows:
+            context = "\n\n".join(row.contenu for row in kb_rows if row.contenu)
+            context = context[:KB_MAX_CONTEXT_CHARS]
+    except Exception as e:
+        print(f"DEBUG: RAG context error -> {e}")
+
+    prompt = f"""
+Tu es un assistant SAV. Réponds clairement et de façon professionnelle.
+Si le contexte n'apporte pas la réponse, dis-le honnêtement.
+
+CONTEXTE (base de connaissances) :
+{context or "Aucun contexte disponible."}
+
+QUESTION :
+{question}
+""".strip()
+
+    # Mode RAG only: on renvoie directement le contexte.
+    if mode == "rag_only":
+        ai_text = context or "Aucun contexte disponible."
+        ai_message = models.ChatMessage(
+            id_session=session_id,
+            type_envoyeur="ai",
+            contenu=ai_text
+        )
+        db.add(ai_message)
+        db.commit()
+        db.refresh(ai_message)
+        return {"response": ai_text, "mode": "rag_only"}
+
     payload = {
         "model": OLLAMA_MODEL,
-        "prompt": f"Utilisateur {current_user} demande : {question}",
+        "prompt": prompt,
         "stream": False
     }
-    response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload)
+    response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=REQUEST_TIMEOUT)
     if not response.ok:
         try:
             error_payload = response.json()
@@ -656,3 +780,126 @@ async def ask_question(
     db.refresh(ai_message)
 
     return data
+
+
+@app.post("/ask/stream")
+def ask_question_stream(
+    payload: schemas.AskRequest,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    question = payload.question
+    session_id = payload.session_id
+    mode = payload.mode
+    user = get_user_by_email(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    if not is_admin_or_sav(user) and session.id_utilisateur != user.id:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    user_message = models.ChatMessage(
+        id_session=session_id,
+        type_envoyeur="user",
+        contenu=question
+    )
+    db.add(user_message)
+    db.commit()
+    db.refresh(user_message)
+
+    # Auto-titre: si la session n'a pas de titre, on utilise la 1ère question.
+    if not session.title or not session.title.strip() or session.title.strip().lower() == "nouvelle conversation":
+        auto_title = question.strip().replace("\n", " ")
+        if auto_title:
+            session.title = auto_title[:80]
+            db.commit()
+
+    # Récupération de contexte depuis la base de connaissances (RAG)
+    context = ""
+    try:
+        query_embedding = embeddings.embed_query(question)
+        kb_rows = (
+            db.query(models.KnowledgeBase)
+            .order_by(models.KnowledgeBase.embedding.cosine_distance(query_embedding))
+            .limit(KB_TOP_K)
+            .all()
+        )
+        if kb_rows:
+            context = "\n\n".join(row.contenu for row in kb_rows if row.contenu)
+            context = context[:KB_MAX_CONTEXT_CHARS]
+    except Exception as e:
+        print(f"DEBUG: RAG context error -> {e}")
+
+    prompt = f"""
+Tu es un assistant SAV. Réponds clairement et de façon professionnelle.
+Si le contexte n'apporte pas la réponse, dis-le honnêtement.
+
+CONTEXTE (base de connaissances) :
+{context or "Aucun contexte disponible."}
+
+QUESTION :
+{question}
+""".strip()
+
+    if mode == "rag_only":
+        ai_text = context or "Aucun contexte disponible."
+        ai_message = models.ChatMessage(
+            id_session=session_id,
+            type_envoyeur="ai",
+            contenu=ai_text
+        )
+        db.add(ai_message)
+        db.commit()
+        db.refresh(ai_message)
+        return StreamingResponse(iter([ai_text]), media_type="text/plain")
+
+    def stream_tokens():
+        ai_chunks: list[str] = []
+        try:
+            payload = {
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": True
+            }
+            response = requests.post(
+                f"{OLLAMA_URL}/api/generate",
+                json=payload,
+                stream=True,
+                timeout=(REQUEST_TIMEOUT, None)
+            )
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line.decode("utf-8"))
+                except Exception:
+                    continue
+                token = data.get("response") if isinstance(data, dict) else None
+                if token:
+                    ai_chunks.append(token)
+                    yield token
+                if isinstance(data, dict) and data.get("done"):
+                    break
+        except Exception as e:
+            error_text = "Erreur IA pendant la génération."
+            print(f"DEBUG: stream error -> {e}")
+            yield error_text
+            ai_chunks.append(error_text)
+        finally:
+            ai_text = "".join(ai_chunks).strip()
+            if not ai_text:
+                ai_text = "Réponse IA invalide"
+            ai_message = models.ChatMessage(
+                id_session=session_id,
+                type_envoyeur="ai",
+                contenu=ai_text
+            )
+            db.add(ai_message)
+            db.commit()
+
+    return StreamingResponse(stream_tokens(), media_type="text/plain")

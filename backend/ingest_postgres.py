@@ -131,7 +131,7 @@ def _load_documents_from_urls(urls: list[str]) -> list:
     for page_url in urls:
         try:
             loader = WebBaseLoader(page_url)
-            loader.requests_kwargs = {"headers": DEFAULT_HEADERS}
+            loader.requests_kwargs = {"headers": DEFAULT_HEADERS, "timeout": REQUEST_TIMEOUT}
             docs.extend(loader.load())
         except Exception as e:
             print(f"Page ignorée (erreur): {page_url} -> {e}")

@@ -15,6 +15,8 @@ docker compose up -d
 # Lancer les services avec affichage des logs en direct
 docker compose up
 
+docker compose up -d --build
+
 # ⚠️ Arrêter les services et supprimer les volumes persistants (efface la base de données et les modèles IA)
 docker compose down -v
 
