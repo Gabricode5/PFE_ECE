@@ -1,6 +1,6 @@
 #déclares tes fonctions API (tes routes @app.post, @app.get, etc.).
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
 import requests
 import os
@@ -11,6 +11,7 @@ import models, schemas
 from database import engine, get_db
 from datetime import datetime, timedelta
 import json
+import uuid
 from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
@@ -56,6 +57,9 @@ KB_TOP_K = int(os.getenv("KB_TOP_K", "4"))
 KB_MAX_CONTEXT_CHARS = int(os.getenv("KB_MAX_CONTEXT_CHARS", "3000"))
 SUMMARY_MAX_CHARS = int(os.getenv("SUMMARY_MAX_CHARS", "4000"))
 SUMMARY_MAX_MESSAGES = int(os.getenv("SUMMARY_MAX_MESSAGES", "50"))
+TRANSCRIPT_MAX_CHARS = int(os.getenv("TRANSCRIPT_MAX_CHARS", "12000"))
+TRANSCRIPT_CHUNK_SIZE = int(os.getenv("TRANSCRIPT_CHUNK_SIZE", "1000"))
+TRANSCRIPT_CHUNK_OVERLAP = int(os.getenv("TRANSCRIPT_CHUNK_OVERLAP", "150"))
 
 if not SECRET_KEY:
     raise RuntimeError("SECRET_KEY manquante. Définis-la dans l'environnement.")
@@ -66,6 +70,12 @@ def sanitize_model_name(raw_value: str, fallback: str) -> str:
         return fallback
     return normalized.split(",")[0].strip() or fallback
 
+def chunk_text(text: str, size: int, overlap: int) -> list[str]:
+    if size <= 0:
+        return [text]
+    step = max(1, size - max(0, overlap))
+    return [text[i:i + size] for i in range(0, len(text), step)]
+
 # Modèle de génération (si une liste est fournie par erreur, on garde le premier).
 OLLAMA_MODEL = sanitize_model_name(os.getenv("OLLAMA_MODEL", "llama3.2:1b"), "llama3.2:1b")
 # Modèle d'embedding dédié.
@@ -74,7 +84,10 @@ EMBED_MODEL = sanitize_model_name(os.getenv("EMBED_MODEL", "nomic-embed-text"), 
 # Initialisation de la fonction d'embedding (doit être la même que dans ingest.py)
 embeddings = OllamaEmbeddings(model=EMBED_MODEL, base_url=OLLAMA_URL)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
+
+# Stockage simple du statut d'ingestion (dev/local).
+INGEST_JOBS: dict[str, dict] = {}
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -86,8 +99,15 @@ def create_access_token(data: dict):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+def get_current_user(
+    request: Request,
+    token: str | None = Depends(oauth2_scheme)
+):
     """Fonction pour vérifier si le token est valide"""
+    if not token:
+        token = request.cookies.get("auth_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Session expirée ou invalide")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
@@ -175,14 +195,41 @@ def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
         "role": role_name # Optionnel mais recommandé
     })
 
-    # 5. On renvoie tout au frontend
-    return {
+    from fastapi.responses import JSONResponse
+    response = JSONResponse(content={
         "access_token": access_token, 
         "token_type": "bearer",
         "username": user.username,
         "user_id": user.id,
         "nom_role": role_name # C'est cette valeur que ton frontend va utiliser
-    }
+    })
+
+    cookie_secure = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+    response.set_cookie(
+        key="auth_token",
+        value=access_token,
+        httponly=True,
+        samesite="strict",
+        secure=cookie_secure,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
+    return response
+
+@app.post("/logout")
+def logout():
+    from fastapi.responses import JSONResponse
+    response = JSONResponse(content={"message": "Déconnecté"})
+    response.set_cookie(
+        key="auth_token",
+        value="",
+        httponly=True,
+        samesite="strict",
+        secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",
+        max_age=0,
+        path="/",
+    )
+    return response
 
 @app.get("/me", response_model=schemas.MeResponse)
 def read_me(current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -387,7 +434,8 @@ def close_session(
         if not msg.contenu:
             continue
         transcript_parts.append(f"{msg.type_envoyeur.upper()}: {msg.contenu}")
-    transcript = "\n".join(transcript_parts)[:SUMMARY_MAX_CHARS]
+    transcript = "\n".join(transcript_parts)
+    transcript = transcript[:TRANSCRIPT_MAX_CHARS]
 
     if not transcript:
         summary_text = "Ticket clos sans message."
@@ -397,7 +445,7 @@ Tu es un agent SAV. Résume ce ticket en 5 à 8 lignes maximum.
 Inclue: problème principal, actions tentées, solution finale (si connue).
 
 TRANSCRIPT:
-{transcript}
+{transcript[:SUMMARY_MAX_CHARS]}
 """.strip()
         summary_text = ""
         try:
@@ -434,6 +482,23 @@ TRANSCRIPT:
         db.add(kb_row)
     except Exception as e:
         print(f"DEBUG: KB insert error -> {e}")
+
+    # Indexation du transcript complet (chunké) pour un RAG plus précis
+    if transcript:
+        try:
+            chunks = chunk_text(transcript, TRANSCRIPT_CHUNK_SIZE, TRANSCRIPT_CHUNK_OVERLAP)
+            total = len(chunks)
+            for idx, chunk in enumerate(chunks, start=1):
+                vector = embeddings.embed_query(chunk)
+                kb_row = models.KnowledgeBase(
+                    source_message_id=None,
+                    contenu=f"Transcript session #{session_id} (user_id={session.id_utilisateur}) [{idx}/{total}]\n{chunk}",
+                    embedding=vector,
+                    category="ticket_transcript",
+                )
+                db.add(kb_row)
+        except Exception as e:
+            print(f"DEBUG: KB transcript insert error -> {e}")
 
     session.status = "closed"
     db.commit()
@@ -650,6 +715,7 @@ def create_message(message: schemas.ChatMessageCreate, current_user: str = Depen
 @app.post("/knowledge-base/ingest-url", response_model=schemas.KnowledgeIngestResponse)
 def ingest_knowledge_base(
     payload: schemas.KnowledgeIngestRequest,
+    background_tasks: BackgroundTasks,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -659,10 +725,48 @@ def ingest_knowledge_base(
 
     try:
         from ingest_postgres import ingest_to_postgres
-        result = ingest_to_postgres(url=str(payload.url), category=payload.category)
-        return result
+        # Lance l'ingestion en arrière-plan pour éviter les timeouts proxy.
+        job_id = str(uuid.uuid4())
+        INGEST_JOBS[job_id] = {
+            "status": "running",
+            "started_at": datetime.utcnow().isoformat(),
+            "url": str(payload.url),
+            "category": payload.category or "",
+            "result": None,
+            "error": None,
+        }
+
+        def _run_ingest(job_id_value: str, url_value: str, category_value: str | None):
+            try:
+                result = ingest_to_postgres(url=url_value, category=category_value)
+                INGEST_JOBS[job_id_value]["status"] = "completed"
+                INGEST_JOBS[job_id_value]["result"] = result
+            except Exception as e:
+                INGEST_JOBS[job_id_value]["status"] = "failed"
+                INGEST_JOBS[job_id_value]["error"] = str(e)
+            finally:
+                INGEST_JOBS[job_id_value]["finished_at"] = datetime.utcnow().isoformat()
+
+        background_tasks.add_task(_run_ingest, job_id, str(payload.url), payload.category)
+        return {
+            "status": "started",
+            "message": "Indexation lancée en arrière-plan. Cela peut prendre quelques minutes.",
+            "url": str(payload.url),
+            "category": payload.category or "",
+            "job_id": job_id,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur ingestion: {str(e)}")
+
+
+@app.get("/knowledge-base/ingest-status")
+def ingest_status(
+    job_id: str,
+    current_user: str = Depends(get_current_user),
+):
+    if job_id not in INGEST_JOBS:
+        raise HTTPException(status_code=404, detail="Job introuvable")
+    return INGEST_JOBS[job_id]
 
 @app.get("/check-ai")
 def check_ai():

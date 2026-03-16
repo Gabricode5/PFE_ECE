@@ -51,14 +51,6 @@ type BackendMessageItem = {
     date_creation?: string | null
 }
 
-function getAuthToken(): string | null {
-    const tokenPair = document.cookie
-        .split("; ")
-        .find((entry) => entry.startsWith("auth_token="))
-    if (!tokenPair) return null
-    return tokenPair.split("=")[1] || null
-}
-
 export default function DashboardPage() {
     const router = useRouter()
     const [role, setRole] = useState("user")
@@ -94,18 +86,20 @@ export default function DashboardPage() {
         async function loadUserSessions() {
             setIsLoadingUser(true)
             setUserError(null)
-            const token = getAuthToken()
             const userId = localStorage.getItem("user_id")
-            if (!token || !userId) {
+            if (!userId) {
                 setUserError("Session expirée. Veuillez vous reconnecter.")
                 setIsLoadingUser(false)
                 return
             }
 
             try {
-                const response = await fetch(`/api/sessions?user_id=${userId}`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
+                const response = await fetch(`/api/sessions?user_id=${userId}`)
+                if (response.status === 401) {
+                    setUserError("Session expirée. Veuillez vous reconnecter.")
+                    setIsLoadingUser(false)
+                    return
+                }
                 if (!response.ok) {
                     setUserError("Impossible de charger vos conversations.")
                     setIsLoadingUser(false)
@@ -127,26 +121,19 @@ export default function DashboardPage() {
     const loadAdminData = async () => {
         setIsLoadingAdmin(true)
         setAdminError(null)
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            setIsLoadingAdmin(false)
-            return
-        }
 
         try {
             const [usersRes, savRes, adminsRes] = await Promise.all([
-                fetch("/api/users?role=user", {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                fetch("/api/users?role=sav", {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                fetch("/api/users?role=admin", {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
+                fetch("/api/users?role=user"),
+                fetch("/api/users?role=sav"),
+                fetch("/api/users?role=admin")
             ])
 
+            if (usersRes.status === 401 || savRes.status === 401 || adminsRes.status === 401) {
+                setAdminError("Session expirée. Veuillez vous reconnecter.")
+                setIsLoadingAdmin(false)
+                return
+            }
             if (!usersRes.ok || !savRes.ok || !adminsRes.ok) {
                 setAdminError("Impossible de charger les utilisateurs.")
                 setIsLoadingAdmin(false)
@@ -174,25 +161,22 @@ export default function DashboardPage() {
 
     const handleChangeUserRole = async (userItem: UserItem, newRole: "user" | "sav" | "admin") => {
         setAdminError(null)
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         setUpdatingRoleUserId(userItem.id)
         try {
             const response = await fetch(`/api/users/${userItem.id}/role`, {
                 method: "PUT",
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({ role: newRole })
             })
 
             const data = await response.json()
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setAdminError(data?.detail || "Impossible de modifier le rôle.")
                 return
             }
@@ -212,12 +196,6 @@ export default function DashboardPage() {
 
     const handleEditUser = async (userItem: UserItem) => {
         setAdminError(null)
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         const username = window.prompt("Nom d'utilisateur", userItem.username)
         if (username === null) return
         const email = window.prompt("Email", userItem.email)
@@ -234,8 +212,7 @@ export default function DashboardPage() {
             const response = await fetch(`/api/users/${userItem.id}`, {
                 method: "PUT",
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
                     username: username.trim(),
@@ -248,6 +225,10 @@ export default function DashboardPage() {
 
             const data = await response.json()
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setAdminError(data?.detail || "Impossible de modifier l'utilisateur.")
                 return
             }
@@ -266,23 +247,20 @@ export default function DashboardPage() {
 
     const handleDeleteUser = async (userItem: UserItem) => {
         setAdminError(null)
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         const confirmed = window.confirm(`Supprimer le compte ${userItem.username} ?`)
         if (!confirmed) return
 
         setUpdatingUserId(userItem.id)
         try {
             const response = await fetch(`/api/users/${userItem.id}`, {
-                method: "DELETE",
-                headers: { Authorization: `Bearer ${token}` }
+                method: "DELETE"
             })
 
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 const data = await response.json()
                 setAdminError(data?.detail || "Impossible de supprimer l'utilisateur.")
                 return
@@ -310,17 +288,13 @@ export default function DashboardPage() {
         setMessages([])
         setAdminError(null)
 
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         try {
-            const response = await fetch(`/api/sessions?user_id=${userItem.id}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
+            const response = await fetch(`/api/sessions?user_id=${userItem.id}`)
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setAdminError("Impossible de charger les sessions.")
                 return
             }
@@ -337,17 +311,13 @@ export default function DashboardPage() {
         setMessages([])
         setAdminError(null)
 
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         try {
-            const response = await fetch(`/api/messages?session_id=${sessionItem.id}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
+            const response = await fetch(`/api/messages?session_id=${sessionItem.id}`)
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setAdminError("Impossible de charger les messages.")
                 return
             }
@@ -368,21 +338,13 @@ export default function DashboardPage() {
     }
 
     const handleCloseSession = async (sessionItem: SessionItem) => {
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            setUserError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         const confirmed = window.confirm(`Clôturer la session #${sessionItem.id} ?`)
         if (!confirmed) return
 
         setClosingSessionId(sessionItem.id)
         try {
             const response = await fetch(`/api/sessions/${sessionItem.id}/close`, {
-                method: "POST",
-                headers: { Authorization: `Bearer ${token}` }
+                method: "POST"
             })
             if (!response.ok) {
                 const data = await response.json()
@@ -397,9 +359,7 @@ export default function DashboardPage() {
             } else {
                 const userId = localStorage.getItem("user_id")
                 if (userId) {
-                    const refresh = await fetch(`/api/sessions?user_id=${userId}`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                    })
+                    const refresh = await fetch(`/api/sessions?user_id=${userId}`)
                     if (refresh.ok) {
                         const data = await refresh.json()
                         setUserSessions(data)
@@ -419,18 +379,11 @@ export default function DashboardPage() {
         const trimmed = reply.trim()
         if (!trimmed || !selectedSession) return
 
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         try {
             const response = await fetch("/api/messages", {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
                     id_session: selectedSession.id,
@@ -439,6 +392,10 @@ export default function DashboardPage() {
                 })
             })
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 const data = await response.json()
                 setAdminError(data?.detail || "Impossible d'envoyer la réponse.")
                 return

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -46,14 +46,6 @@ import {
     Loader2
 } from "lucide-react"
 
-function getAuthToken(): string | null {
-    const tokenPair = document.cookie
-        .split("; ")
-        .find((entry) => entry.startsWith("auth_token="))
-    if (!tokenPair) return null
-    return tokenPair.split("=")[1] || null
-}
-
 export default function KnowledgeBasePage() {
     const [articles, setArticles] = useState(INITIAL_ARTICLES)
     const [searchQuery, setSearchQuery] = useState("")
@@ -71,40 +63,97 @@ export default function KnowledgeBasePage() {
     const [isIngesting, setIsIngesting] = useState(false)
     const [ingestMessage, setIngestMessage] = useState<string | null>(null)
     const [ingestError, setIngestError] = useState<string | null>(null)
+    const [ingestJobId, setIngestJobId] = useState<string | null>(null)
+    const ingestPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+    useEffect(() => {
+        if (!ingestJobId) return
+
+        if (ingestPollRef.current) {
+            clearInterval(ingestPollRef.current)
+        }
+
+        ingestPollRef.current = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/knowledge-base/ingest-status?job_id=${ingestJobId}`, {
+                    credentials: "include",
+                })
+                if (!response.ok) return
+                const data = await response.json()
+                if (data.status === "completed") {
+                    setIsIngesting(false)
+                    setIngestJobId(null)
+                    if (data.result?.inserted === 0) {
+                        setIngestError("Aucun contenu récupéré. Le site bloque peut-être le scraping ou utilise du contenu dynamique.")
+                    } else {
+                        const inserted = data.result?.inserted ?? "?"
+                        const url = data.result?.url ?? sourceUrl
+                        setIngestMessage(`Indexation terminée : ${inserted} contenus indexés depuis ${url}`)
+                    }
+                }
+                if (data.status === "failed") {
+                    setIsIngesting(false)
+                    setIngestJobId(null)
+                    setIngestError(data.error || "Erreur pendant l'indexation.")
+                }
+            } catch {
+                // On ignore pour éviter de spammer l'UI
+            }
+        }, 3000)
+
+        return () => {
+            if (ingestPollRef.current) {
+                clearInterval(ingestPollRef.current)
+                ingestPollRef.current = null
+            }
+        }
+    }, [ingestJobId, sourceUrl])
 
     const handleIngestUrl = async () => {
         setIngestMessage(null)
         setIngestError(null)
 
-        const token = getAuthToken()
-        if (!token) {
-            setIngestError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         setIsIngesting(true)
+        let isBackgroundJob = false
         try {
             const response = await fetch("/api/knowledge-base/ingest-url", {
                 method: "POST",
+                credentials: "include",
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({ url: sourceUrl }),
             })
 
             const data = await response.json()
             if (!response.ok) {
+                if (response.status === 401) {
+                    setIngestError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setIngestError(data?.detail || "Impossible de lancer l'ingestion.")
                 return
             }
 
+            if (data.status === "started") {
+                isBackgroundJob = true
+                setIngestMessage(data.message || "Indexation lancée.")
+                setIngestJobId(data.job_id || null)
+                return
+            }
+
+            if (data.inserted === 0) {
+                setIngestError("Aucun contenu récupéré. Le site bloque peut-être le scraping ou utilise du contenu dynamique.")
+                return
+            }
             setIngestMessage(`${data.inserted} contenus indexés depuis ${data.url}`)
         } catch (error) {
             console.error("Erreur ingestion URL:", error)
             setIngestError("Erreur réseau pendant l'ingestion.")
         } finally {
-            setIsIngesting(false)
+            if (!isBackgroundJob) {
+                setIsIngesting(false)
+            }
         }
     }
 

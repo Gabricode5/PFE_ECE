@@ -6,14 +6,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 
-function getAuthToken(): string | null {
-    const tokenPair = document.cookie
-        .split("; ")
-        .find((entry) => entry.startsWith("auth_token="))
-    if (!tokenPair) return null
-    return tokenPair.split("=")[1] || null
-}
-
 type Me = {
     id: number
     username: string
@@ -49,18 +41,14 @@ export default function SettingsPage() {
             setError(null)
             setSuccess(null)
 
-            const token = getAuthToken()
-            if (!token) {
-                setError("Session expirée. Veuillez vous reconnecter.")
-                setLoading(false)
-                return
-            }
-
             try {
-                const response = await fetch("/api/me", {
-                    headers: { Authorization: `Bearer ${token}` },
-                })
+                const response = await fetch("/api/me")
                 if (!response.ok) {
+                    if (response.status === 401) {
+                        setError("Session expirée. Veuillez vous reconnecter.")
+                        setLoading(false)
+                        return
+                    }
                     setError("Impossible de charger votre profil.")
                     setLoading(false)
                     return
@@ -87,19 +75,13 @@ export default function SettingsPage() {
     const handleSaveProfile = async () => {
         setError(null)
         setSuccess(null)
-        const token = getAuthToken()
-        if (!token) {
-            setError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
 
         setSavingProfile(true)
         try {
             const response = await fetch("/api/me", {
                 method: "PUT",
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
                     username: profile.username,
@@ -111,6 +93,10 @@ export default function SettingsPage() {
 
             const data = await response.json()
             if (!response.ok) {
+                if (response.status === 401) {
+                    setError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setError(data?.detail || "Impossible de sauvegarder le profil.")
                 return
             }
@@ -139,19 +125,12 @@ export default function SettingsPage() {
             return
         }
 
-        const token = getAuthToken()
-        if (!token) {
-            setError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         setSavingPassword(true)
         try {
             const response = await fetch("/api/me/password", {
                 method: "PUT",
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
                     current_password: passwordForm.currentPassword,
@@ -161,6 +140,10 @@ export default function SettingsPage() {
 
             const data = await response.json()
             if (!response.ok) {
+                if (response.status === 401) {
+                    setError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setError(data?.detail || "Impossible de modifier le mot de passe.")
                 return
             }
