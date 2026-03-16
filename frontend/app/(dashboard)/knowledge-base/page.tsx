@@ -34,13 +34,8 @@ import {
     Trash2,
 } from "lucide-react"
 
-function getAuthToken(): string | null {
-    const tokenPair = document.cookie
-        .split("; ")
-        .find((entry) => entry.startsWith("auth_token="))
-    if (!tokenPair) return null
-    return tokenPair.split("=")[1] || null
-}
+// Auth uses HttpOnly cookie; browser sends it automatically with credentials: "include".
+// Do not try to read auth_token from document.cookie (it is not visible to JS).
 
 type KnowledgeItem = {
     id: number
@@ -70,11 +65,9 @@ export default function KnowledgeBasePage() {
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
     const fetchItems = async () => {
-        const token = getAuthToken()
-        if (!token) { setIsLoading(false); return }
         try {
             const res = await fetch("/api/knowledge-base/items", {
-                headers: { Authorization: `Bearer ${token}` },
+                credentials: "include",
             })
             if (res.ok) setItems(await res.json())
         } finally {
@@ -85,13 +78,11 @@ export default function KnowledgeBasePage() {
     useEffect(() => { fetchItems() }, [])
 
     const handleDeleteItem = async (id: number) => {
-        const token = getAuthToken()
-        if (!token) return
-        await fetch(`/api/knowledge-base/items/${id}`, {
+        const res = await fetch(`/api/knowledge-base/items/${id}`, {
             method: "DELETE",
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
         })
-        setItems(prev => prev.filter(i => i.id !== id))
+        if (res.ok) setItems(prev => prev.filter(i => i.id !== id))
     }
 
     const handleIngestUrl = async () => {
@@ -134,7 +125,7 @@ export default function KnowledgeBasePage() {
                 await fetchItems()
                 const currentItems: KnowledgeItem[] = await (async () => {
                     const r = await fetch("/api/knowledge-base/items", {
-                        headers: { Authorization: `Bearer ${token}` },
+                        credentials: "include",
                     })
                     return r.ok ? r.json() : []
                 })()
@@ -166,8 +157,6 @@ export default function KnowledgeBasePage() {
         if (selectedFile) {
             setPdfError(null)
             setPdfMessage(null)
-            const token = getAuthToken()
-            if (!token) { setPdfError("Session expirée."); return }
 
             setIsPdfUploading(true)
             try {
@@ -178,11 +167,18 @@ export default function KnowledgeBasePage() {
 
                 const response = await fetch("/api/knowledge-base/ingest-pdf", {
                     method: "POST",
-                    headers: { Authorization: `Bearer ${token}` },
+                    credentials: "include",
                     body: formData,
                 })
-                const data = await response.json()
-                if (!response.ok) { setPdfError(data?.detail || "Erreur upload."); return }
+                const data = await response.json().catch(() => ({}))
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        setPdfError("Session expirée. Veuillez vous reconnecter.")
+                    } else {
+                        setPdfError(data?.detail || "Erreur upload.")
+                    }
+                    return
+                }
 
                 setPdfMessage(`${data.inserted} segments indexés depuis "${data.filename}" (${data.pages} pages)`)
                 await fetchItems()

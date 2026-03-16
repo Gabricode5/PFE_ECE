@@ -182,8 +182,11 @@ export default function AiAssistantPage() {
             }
 
             const response = await fetch(
-                `/api/ask?question=${encodeURIComponent(trimmed)}&session_id=${sessionIdNumber}`,
-                { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+                `/api/ask?question=${encodeURIComponent(trimmed)}&session_id=${sessionIdNumber}&mode=rag_llm`,
+                {
+                    method: "POST",
+                    credentials: "include",
+                }
             )
 
             if (!response.ok || !response.body) {

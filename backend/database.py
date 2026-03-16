@@ -2,7 +2,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
+from dotenv import load_dotenv
 
+load_dotenv()
 # 1. L'adresse de ta base (récupérée de Docker ou en local par défaut)
 # On utilise les identifiants que tu as configurés dans ton docker-compose
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:Password1234@postgres/ticketdb")
