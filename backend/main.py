@@ -1,9 +1,10 @@
 #déclares tes fonctions API (tes routes @app.post, @app.get, etc.).
 
-from fastapi import FastAPI, HTTPException, Depends, status, APIRouter, File, UploadFile, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, status, APIRouter, File, UploadFile, Form, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
 import requests
 import json
+import uuid
 import os
 from langchain_ollama import OllamaEmbeddings
 from langchain_postgres import PGVector
@@ -12,8 +13,6 @@ from passlib.context import CryptContext
 import models, schemas
 from database import engine, get_db
 from datetime import datetime, timedelta
-import json
-import uuid
 from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
@@ -342,7 +341,7 @@ def update_my_password(
     return {"message": "Mot de passe mis à jour"}
 
 @chat_router.post("/sessions", response_model=schemas.ChatSessionResponse)
-def create_session(session_data: schemas.ChatSessionCreate, user_id: int, db: Session = Depends(get_db)):
+def create_session(session_data: schemas.ChatSessionCreate, user_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     # 1. Vérifier si l'utilisateur existe
     user = db.query(models.Utilisateur).filter(models.Utilisateur.id == user_id).first()
     if not user:
@@ -393,7 +392,7 @@ def list_sessions(
     return sessions
 
 @chat_router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_session(session_id: int, db: Session = Depends(get_db)):
+def delete_session(session_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session non trouvée")
@@ -746,7 +745,7 @@ def delete_knowledge_source(
 @system_router.get("/check-ai")
 def check_ai():
     try:
-        response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=REQUEST_TIMEOUT)
+        response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=10)
         return {"ollama_connected": True, "models": response.json()}
     except Exception as e:
         return {"ollama_connected": False, "error": str(e)}
