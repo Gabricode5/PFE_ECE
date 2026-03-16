@@ -1,11 +1,12 @@
 #déclares tes fonctions API (tes routes @app.post, @app.get, etc.).
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, APIRouter, File, UploadFile, Form, BackgroundTasks
+from fastapi.responses import StreamingResponse
 import requests
+import json
 import os
-# On ajoute ces imports pour lire la base de données vectorielle
-from langchain_community.vectorstores import Chroma
 from langchain_ollama import OllamaEmbeddings
+from langchain_postgres import PGVector
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 import models, schemas
@@ -19,7 +20,22 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()  # Charger les variables d'environnement depuis le fichier .env
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+    from database import engine
+    from sqlalchemy import text
+    models.Base.metadata.create_all(bind=engine)
+    with engine.connect() as conn:
+        conn.execute(text(
+            "ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS name TEXT"
+        ))
+        conn.commit()
+    yield
+
 app = FastAPI(
+    lifespan=lifespan,
     title="CRM Intelligent API",
     description="API pour un gestionnaire de tickets avec intégration IA",
     version="1.0.0", 
@@ -43,6 +59,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+auth_router = APIRouter(tags=["Auth"])
+users_router = APIRouter(tags=["Users"])
+chat_router = APIRouter(tags=["Chat"])
+system_router = APIRouter(tags=["System"])
+
+
 # Remplace ta ligne SECRET_KEY par celle-ci pour tester
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
@@ -51,8 +73,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # CONFIGURATION
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-# C'est le dossier que tu as créé avec ingest.py
-PERSIST_DIRECTORY = "./db_service_public"
+RAG_COLLECTION = "rag_documents"
+
+def _pg_connection_string() -> str:
+    raw = os.getenv("DATABASE_URL", "postgresql://admin:Password1234@localhost:5432/ticketdb")
+    return raw.replace("postgresql://", "postgresql+psycopg://", 1)
 
 def sanitize_model_name(raw_value: str, fallback: str) -> str:
     normalized = (raw_value or "").replace(";", ",").strip()
@@ -100,54 +125,11 @@ def is_admin_or_sav(user: models.Utilisateur | None):
     return user.role.nom_role in ["admin", "sav"]
 
 
-@app.get("/")
+@system_router.get("/")
 def read_root():
     return {"status": "Online", "message": "Le gestionnaire de tickets avec RAG est prêt"}
 
-# @app.post("/asks")
-# async def ask_question(question: str):
-#     """Route qui va chercher dans la base de données avant de répondre"""
-#     try:
-#         # 1. RECHERCHE : On ouvre la base de données et on cherche les textes pertinents
-#         vector_db = Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=embeddings)
-#         docs = vector_db.similarity_search(question, k=3) # Récupère les 3 meilleurs morceaux
-        
-#         # On combine les morceaux de texte trouvés
-#         context = "\n".join([doc.page_content for doc in docs])
-        
-#         # 2. PROMPT : On donne le contexte à llama3.2:1b pour qu'il réponde précisément
-#         prompt_intelligent = f"""
-#         Tu es un assistant expert du site Service-Public.fr. 
-#         Utilise exclusivement les informations ci-dessous pour répondre à la question.
-#         Si la réponse n'est pas dans le contexte, dis poliment que tu ne sais pas.
-
-#         CONTEXTE RÉCUPÉRÉ :
-#         {context}
-
-#         QUESTION DE L'UTILISATEUR :
-#         {question}
-#         """
-
-#         # 3. GÉNÉRATION : Envoi à Ollama
-#         payload = {
-#             "model": "llama3.2:1b",
-#             "prompt": prompt_intelligent,
-#             "stream": False
-#         }
-        
-#         response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload)
-#         response.raise_for_status()
-#         result = response.json()
-        
-#         return {
-#             "answer": result["response"],
-#             "source_used": "Service-Public.fr (RAG local)"
-#         }
-
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Erreur IA : {str(e)}")
-
-@app.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
+@auth_router.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     # 1. Vérifier si l'email existe déjà
     existing_user = db.query(models.Utilisateur).filter(models.Utilisateur.email == user.email).first()
@@ -157,14 +139,20 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     # 2. Hacher le mot de passe
     hashed_password = pwd_context.hash(user.password)
 
-    # 3. Créer l'objet Utilisateur (on utilise user.id_role qui vient du schéma)
+    # Déterminer l'ID du rôle ("user" par défaut si 0 ou null)
+    role_id = user.id_role
+    if not role_id or role_id == 0:
+        role_en_base = db.query(models.Role).filter(models.Role.nom_role == "user").first()
+        role_id = role_en_base.id if role_en_base else 1
+
+    # 3. Créer l'objet Utilisateur
     new_user = models.Utilisateur(
         username=user.username,
         email=user.email,
         password_hash=hashed_password,
         prenom=user.prenom,
         nom=user.nom,
-        id_role=user.id_role  # Utilise la valeur du schéma (ex: 1)
+        id_role=role_id
     )
 
     # 4. Sauvegarde
@@ -184,7 +172,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         "date_creation": new_user.date_creation
     }
 
-@app.post("/login")
+@auth_router.post("/login")
 def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     # 1. On cherche l'utilisateur avec une jointure pour charger le rôle
     user = db.query(models.Utilisateur).filter(models.Utilisateur.email == user_credentials.email).first()
@@ -216,7 +204,7 @@ def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
         "nom_role": role_name # C'est cette valeur que ton frontend va utiliser
     }
 
-@app.get("/me", response_model=schemas.MeResponse)
+@auth_router.get("/me", response_model=schemas.MeResponse)
 def read_me(current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     user = get_user_by_email(db, current_user)
     if not user:
@@ -233,7 +221,7 @@ def read_me(current_user: str = Depends(get_current_user), db: Session = Depends
         "date_creation": user.date_creation,
     }
 
-@app.put("/me", response_model=schemas.MeResponse)
+@auth_router.put("/me", response_model=schemas.MeResponse)
 def update_me(
     payload: schemas.MeUpdateRequest,
     current_user: str = Depends(get_current_user),
@@ -287,7 +275,7 @@ def update_me(
         "date_creation": user.date_creation,
     }
 
-@app.put("/me/password")
+@auth_router.put("/me/password")
 def update_my_password(
     payload: schemas.MePasswordUpdateRequest,
     current_user: str = Depends(get_current_user),
@@ -308,7 +296,7 @@ def update_my_password(
 
     return {"message": "Mot de passe mis à jour"}
 
-@app.post("/sessions", response_model=schemas.ChatSessionResponse)
+@chat_router.post("/sessions", response_model=schemas.ChatSessionResponse)
 def create_session(session_data: schemas.ChatSessionCreate, user_id: int, db: Session = Depends(get_db)):
     # 1. Vérifier si l'utilisateur existe
     user = db.query(models.Utilisateur).filter(models.Utilisateur.id == user_id).first()
@@ -327,7 +315,7 @@ def create_session(session_data: schemas.ChatSessionCreate, user_id: int, db: Se
     
     return new_session
 
-@app.get("/sessions", response_model=list[schemas.ChatSessionResponse])
+@chat_router.get("/sessions", response_model=list[schemas.ChatSessionResponse])
 def list_sessions(
     user_id: int,
     current_user: str = Depends(get_current_user),
@@ -353,7 +341,7 @@ def list_sessions(
     )
     return sessions
 
-@app.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@chat_router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_session(session_id: int, db: Session = Depends(get_db)):
     session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
     if not session:
@@ -364,7 +352,7 @@ def delete_session(session_id: int, db: Session = Depends(get_db)):
 
     return
 
-@app.get("/users", response_model=list[schemas.UserListResponse])
+@users_router.get("/users", response_model=list[schemas.UserListResponse])
 def list_users(
     role: str | None = None,
     current_user: str = Depends(get_current_user),
@@ -391,7 +379,7 @@ def list_users(
         for user in users
     ]
 
-@app.put("/users/{user_id}/role", response_model=schemas.UserListResponse)
+@users_router.put("/users/{user_id}/role", response_model=schemas.UserListResponse)
 def update_user_role(
     user_id: int,
     payload: schemas.UserRoleUpdateRequest,
@@ -430,7 +418,7 @@ def update_user_role(
         "role": target_user.role.nom_role if target_user.role else "user",
     }
 
-@app.put("/users/{user_id}", response_model=schemas.UserListResponse)
+@users_router.put("/users/{user_id}", response_model=schemas.UserListResponse)
 def update_user_by_admin(
     user_id: int,
     payload: schemas.UserAdminUpdateRequest,
@@ -501,7 +489,7 @@ def update_user_by_admin(
         "role": target_user.role.nom_role if target_user.role else "user",
     }
 
-@app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@users_router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user_by_admin(
     user_id: int,
     current_user: str = Depends(get_current_user),
@@ -523,7 +511,7 @@ def delete_user_by_admin(
 
     return
 
-@app.get("/messages", response_model=list[schemas.ChatMessageResponse])
+@chat_router.get("/messages", response_model=list[schemas.ChatMessageResponse])
 def list_messages(session_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     user = get_user_by_email(db, current_user)
     if not user:
@@ -544,7 +532,7 @@ def list_messages(session_id: int, current_user: str = Depends(get_current_user)
     )
     return messages
 
-@app.post("/messages", response_model=schemas.ChatMessageResponse, status_code=status.HTTP_201_CREATED)
+@chat_router.post("/messages", response_model=schemas.ChatMessageResponse, status_code=status.HTTP_201_CREATED)
 def create_message(message: schemas.ChatMessageCreate, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     user = get_user_by_email(db, current_user)
     if not user:
@@ -571,9 +559,10 @@ def create_message(message: schemas.ChatMessageCreate, current_user: str = Depen
     return new_message
 
 #Route qui permet à ingest_postgres de recupérer la route dynamiquement via le front
-@app.post("/knowledge-base/ingest-url", response_model=schemas.KnowledgeIngestResponse)
+@system_router.post("/knowledge-base/ingest-url", status_code=202)
 def ingest_knowledge_base(
     payload: schemas.KnowledgeIngestRequest,
+    background_tasks: BackgroundTasks,
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -581,14 +570,121 @@ def ingest_knowledge_base(
     if not requester or not is_admin_or_sav(requester):
         raise HTTPException(status_code=403, detail="Accès refusé")
 
+    def run_ingest(url: str, category: str | None):
+        try:
+            from ingest_postgres import ingest_to_postgres
+            from database import SessionLocal
+            result = ingest_to_postgres(url=url, category=category)
+            db2 = SessionLocal()
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(result["url"])
+                auto_name = parsed.hostname or result["url"]
+                source_record = models.KnowledgeSource(
+                    name=auto_name,
+                    source=result["url"],
+                    source_type="url",
+                    category=result["category"],
+                    chunks=result["chunks"],
+                    pages=None,
+                )
+                db2.add(source_record)
+                db2.commit()
+            except Exception:
+                db2.rollback()
+            finally:
+                db2.close()
+        except Exception as e:
+            print(f"Erreur background ingest-url: {e}")
+
+    background_tasks.add_task(run_ingest, str(payload.url), payload.category)
+    return {"status": "started", "url": str(payload.url)}
+
+@system_router.post("/knowledge-base/ingest-pdf", response_model=schemas.PdfIngestResponse)
+async def ingest_pdf_endpoint(
+    file: UploadFile = File(...),
+    category: str = Form("pdf"),
+    name: str = Form(""),
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    requester = get_user_by_email(db, current_user)
+    if not requester or not is_admin_or_sav(requester):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Seuls les fichiers PDF sont acceptés")
+
     try:
-        from ingest_postgres import ingest_to_postgres
-        result = ingest_to_postgres(url=str(payload.url), category=payload.category)
+        from ingest_pdf import ingest_pdf_to_postgres
+        file_bytes = await file.read()
+        result = ingest_pdf_to_postgres(file_bytes, file.filename, category)
+        source_record = models.KnowledgeSource(
+            name=name.strip() or file.filename,
+            source=result["filename"],
+            source_type="pdf",
+            category=result["category"],
+            chunks=result["chunks"],
+            pages=result["pages"],
+        )
+        db.add(source_record)
+        db.commit()
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur ingestion: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erreur ingestion PDF: {str(e)}")
 
-@app.get("/check-ai")
+
+@system_router.get("/knowledge-base/items", response_model=list[schemas.KnowledgeSourceResponse])
+def list_knowledge_sources(
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    requester = get_user_by_email(db, current_user)
+    if not requester or not is_admin_or_sav(requester):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    return (
+        db.query(models.KnowledgeSource)
+        .order_by(models.KnowledgeSource.date_creation.desc())
+        .all()
+    )
+
+
+@system_router.delete("/knowledge-base/items/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_knowledge_source(
+    source_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    requester = get_user_by_email(db, current_user)
+    if not requester or not is_admin_or_sav(requester):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    ks = db.query(models.KnowledgeSource).filter(models.KnowledgeSource.id == source_id).first()
+    if not ks:
+        raise HTTPException(status_code=404, detail="Source introuvable")
+
+    # Delete vectors from langchain_pg_embedding where metadata source matches.
+    # The table only exists after the first ingestion, so we guard against that.
+    from sqlalchemy import text
+    try:
+        db.execute(
+            text("""
+                DELETE FROM langchain_pg_embedding
+                WHERE collection_id = (
+                    SELECT uuid FROM langchain_pg_collection WHERE name = :collection
+                )
+                AND cmetadata->>'source' = :source
+            """),
+            {"collection": RAG_COLLECTION, "source": ks.source},
+        )
+    except Exception:
+        db.rollback()  # table doesn't exist yet — nothing to delete, continue
+
+    db.delete(ks)
+    db.commit()
+
+
+@system_router.get("/check-ai")
 def check_ai():
     try:
         response = requests.get(f"{OLLAMA_URL}/api/tags")
@@ -597,7 +693,7 @@ def check_ai():
         return {"ollama_connected": False, "error": str(e)}
     
 
-@app.post("/ask")
+@chat_router.post("/ask")
 async def ask_question(
     question: str,
     session_id: int,
@@ -625,34 +721,87 @@ async def ask_question(
     db.commit()
     db.refresh(user_message)
 
-    payload = {
+    # --- RAG: retrieve context via langchain-postgres PGVector ---
+    try:
+        vector_store = PGVector(
+            embeddings=embeddings,
+            collection_name=RAG_COLLECTION,
+            connection=_pg_connection_string(),
+            use_jsonb=True,
+        )
+        relevant_docs = vector_store.similarity_search(question, k=4)
+        context = "\n\n".join(doc.page_content for doc in relevant_docs)
+    except Exception:
+        relevant_docs = []
+        context = ""
+
+    print(f"[RAG] {len(relevant_docs)} docs retrieved for: {question!r}")
+    for i, doc in enumerate(relevant_docs):
+        preview = doc.page_content[:120].replace("\n", " ")
+        src = doc.metadata.get("source", "?")
+        print(f"  [{i+1}] ({src}) {preview}...")
+
+    if context:
+        rag_prompt = (
+            f"Tu es un assistant de support client. Utilise uniquement le contexte ci-dessous pour répondre.\n\n"
+            f"Contexte:\n{context}\n\n"
+            f"Question de l'utilisateur: {question}"
+            f"\n\n"
+            f"*IMPORTANT* : if you don't have the answer, just say you don't know."
+        )
+    else:
+        rag_prompt = f"Question de l'utilisateur: {question}"
+    print(f"[RAG] Prompt: {rag_prompt}")
+    ollama_payload = {
         "model": OLLAMA_MODEL,
-        "prompt": f"Utilisateur {current_user} demande : {question}",
-        "stream": False
+        "prompt": rag_prompt,
+        "stream": True,
     }
-    response = requests.post(f"{OLLAMA_URL}/api/generate", json=payload)
-    if not response.ok:
+
+    def stream_and_save():
+        tokens: list[str] = []
         try:
-            error_payload = response.json()
-            detail = error_payload.get("error") or error_payload.get("message") or str(error_payload)
-        except Exception:
-            detail = response.text or "Erreur Ollama"
-        raise HTTPException(status_code=response.status_code, detail=detail)
+            with requests.post(
+                f"{OLLAMA_URL}/api/generate",
+                json=ollama_payload,
+                stream=True,
+                timeout=120,
+            ) as resp:
+                if not resp.ok:
+                    yield f"[Erreur Ollama {resp.status_code}]"
+                    return
+                for raw_line in resp.iter_lines():
+                    if not raw_line:
+                        continue
+                    try:
+                        chunk = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        continue
+                    token = chunk.get("response", "")
+                    if token:
+                        tokens.append(token)
+                        yield token
+                    if chunk.get("done"):
+                        break
+        finally:
+            from database import SessionLocal
+            db2 = SessionLocal()
+            try:
+                ai_message = models.ChatMessage(
+                    id_session=session_id,
+                    type_envoyeur="ai",
+                    contenu="".join(tokens),
+                )
+                db2.add(ai_message)
+                db2.commit()
+            except Exception:
+                db2.rollback()
+            finally:
+                db2.close()
 
-    data = response.json()
-    if isinstance(data, dict) and data.get("error"):
-        raise HTTPException(status_code=500, detail=data.get("error"))
-    ai_text = data.get("response") if isinstance(data, dict) else None
-    if not ai_text:
-        raise HTTPException(status_code=500, detail="Réponse IA invalide")
+    return StreamingResponse(stream_and_save(), media_type="text/plain")
 
-    ai_message = models.ChatMessage(
-        id_session=session_id,
-        type_envoyeur="ai",
-        contenu=ai_text
-    )
-    db.add(ai_message)
-    db.commit()
-    db.refresh(ai_message)
-
-    return data
+app.include_router(auth_router)
+app.include_router(users_router)
+app.include_router(chat_router)
+app.include_router(system_router)

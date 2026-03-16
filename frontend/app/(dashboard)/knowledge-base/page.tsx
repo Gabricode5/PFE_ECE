@@ -1,12 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import {
     Dialog,
     DialogContent,
@@ -24,26 +23,15 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import {
-    Tabs,
-    TabsContent,
-    TabsList,
-    TabsTrigger,
-} from "@/components/ui/tabs"
-import {
     Search,
     Plus,
     FileText,
-    Eye,
-    Star,
-    Edit2,
-    Trash2,
-    Book,
-    Video,
-    HelpCircle,
-    Lightbulb,
     Cpu,
     Upload,
-    Loader2
+    Loader2,
+    Link,
+    Globe,
+    Trash2,
 } from "lucide-react"
 
 function getAuthToken(): string | null {
@@ -54,23 +42,57 @@ function getAuthToken(): string | null {
     return tokenPair.split("=")[1] || null
 }
 
+type KnowledgeItem = {
+    id: number
+    name: string | null
+    source: string
+    source_type: "url" | "pdf"
+    category: string | null
+    chunks: number
+    pages: number | null
+    date_creation: string
+}
+
 export default function KnowledgeBasePage() {
-    const [articles, setArticles] = useState(INITIAL_ARTICLES)
+    const [items, setItems] = useState<KnowledgeItem[]>([])
+    const [isLoading, setIsLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState("")
     const [activeFilter, setActiveFilter] = useState("Tout")
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-    const [activeTab, setActiveTab] = useState("write")
-    const [newArticle, setNewArticle] = useState({
-        title: "",
-        category: "Guides",
-        summary: "",
-        tags: "",
-        fileName: ""
-    })
+    const [newItem, setNewItem] = useState({ name: "", category: "pdf", fileName: "" })
     const [sourceUrl, setSourceUrl] = useState("https://www.service-public.fr/particuliers/vosdroits/F1342")
     const [isIngesting, setIsIngesting] = useState(false)
     const [ingestMessage, setIngestMessage] = useState<string | null>(null)
     const [ingestError, setIngestError] = useState<string | null>(null)
+    const [isPdfUploading, setIsPdfUploading] = useState(false)
+    const [pdfMessage, setPdfMessage] = useState<string | null>(null)
+    const [pdfError, setPdfError] = useState<string | null>(null)
+    const [selectedFile, setSelectedFile] = useState<File | null>(null)
+
+    const fetchItems = async () => {
+        const token = getAuthToken()
+        if (!token) { setIsLoading(false); return }
+        try {
+            const res = await fetch("/api/knowledge-base/items", {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) setItems(await res.json())
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    useEffect(() => { fetchItems() }, [])
+
+    const handleDeleteItem = async (id: number) => {
+        const token = getAuthToken()
+        if (!token) return
+        await fetch(`/api/knowledge-base/items/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+        })
+        setItems(prev => prev.filter(i => i.id !== id))
+    }
 
     const handleIngestUrl = async () => {
         setIngestMessage(null)
@@ -96,50 +118,100 @@ export default function KnowledgeBasePage() {
             const data = await response.json()
             if (!response.ok) {
                 setIngestError(data?.detail || "Impossible de lancer l'ingestion.")
+                setIsIngesting(false)
                 return
             }
 
-            setIngestMessage(`${data.inserted} contenus indexés depuis ${data.url}`)
+            // Backend returns 202 immediately — ingestion runs in background.
+            // Poll /knowledge-base/items every 5s until a new entry for this URL appears.
+            setIngestMessage("Indexation en cours… cela peut prendre quelques minutes.")
+            const targetUrl = data.url as string
+            const previousCount = items.length
+            const maxAttempts = 36 // 3 minutes max
+            let attempts = 0
+
+            const poll = async (): Promise<void> => {
+                attempts++
+                await fetchItems()
+                const currentItems: KnowledgeItem[] = await (async () => {
+                    const r = await fetch("/api/knowledge-base/items", {
+                        headers: { Authorization: `Bearer ${token}` },
+                    })
+                    return r.ok ? r.json() : []
+                })()
+
+                const found = currentItems.find(i => i.source === targetUrl)
+                if (found) {
+                    setItems(currentItems)
+                    setIngestMessage(`${found.chunks} segments indexés depuis "${targetUrl}"`)
+                    setIsIngesting(false)
+                    return
+                }
+                if (attempts < maxAttempts) {
+                    setTimeout(poll, 5000)
+                } else {
+                    setIngestMessage("Indexation lancée. Rafraîchissez dans quelques instants.")
+                    setIsIngesting(false)
+                }
+            }
+
+            setTimeout(poll, 5000)
         } catch (error) {
             console.error("Erreur ingestion URL:", error)
             setIngestError("Erreur réseau pendant l'ingestion.")
-        } finally {
             setIsIngesting(false)
         }
     }
 
-    const handleAddArticle = () => {
-        let summaryText = newArticle.summary
-        if (activeTab === "upload" && newArticle.fileName) {
-            summaryText = `Document importé : ${newArticle.fileName}`
-        }
+    const handleAddArticle = async () => {
+        if (selectedFile) {
+            setPdfError(null)
+            setPdfMessage(null)
+            const token = getAuthToken()
+            if (!token) { setPdfError("Session expirée."); return }
 
-        const article = {
-            title: newArticle.title,
-            summary: summaryText,
-            icon: activeTab === "upload" ? <FileText className="h-5 w-5" /> : getIconForCategory(newArticle.category),
-            tags: newArticle.tags.split(",").map(t => t.trim()).filter(Boolean),
-            views: "0",
-            rating: "0",
-            date: "À l'instant",
-            category: newArticle.category
+            setIsPdfUploading(true)
+            try {
+                const formData = new FormData()
+                formData.append("file", selectedFile)
+                formData.append("category", newItem.category)
+                formData.append("name", newItem.name)
+
+                const response = await fetch("/api/knowledge-base/ingest-pdf", {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}` },
+                    body: formData,
+                })
+                const data = await response.json()
+                if (!response.ok) { setPdfError(data?.detail || "Erreur upload."); return }
+
+                setPdfMessage(`${data.inserted} segments indexés depuis "${data.filename}" (${data.pages} pages)`)
+                await fetchItems()
+                setIsAddDialogOpen(false)
+                setSelectedFile(null)
+                setNewItem({ name: "", category: "pdf", fileName: "" })
+            } catch {
+                setPdfError("Erreur réseau pendant l'upload.")
+            } finally {
+                setIsPdfUploading(false)
+            }
+            return
         }
-        setArticles([article, ...articles])
-        setIsAddDialogOpen(false)
-        setNewArticle({ title: "", category: "Guides", summary: "", tags: "", fileName: "" })
-        setActiveTab("write")
     }
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
-            setNewArticle({ ...newArticle, fileName: e.target.files[0].name })
+            setSelectedFile(e.target.files[0])
+            setNewItem(prev => ({ ...prev, fileName: e.target.files![0].name }))
         }
     }
 
-    const filteredArticles = articles.filter(article => {
-        const matchesSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            article.summary.toLowerCase().includes(searchQuery.toLowerCase())
-        const matchesFilter = activeFilter === "Tout" || article.category === activeFilter
+    const filteredItems = items.filter(item => {
+        const q = searchQuery.toLowerCase()
+        const matchesSearch = item.source.toLowerCase().includes(q) ||
+            (item.name ?? "").toLowerCase().includes(q) ||
+            (item.category ?? "").toLowerCase().includes(q)
+        const matchesFilter = activeFilter === "Tout" || item.source_type === activeFilter.toLowerCase() || item.category === activeFilter
         return matchesSearch && matchesFilter
     })
 
@@ -156,95 +228,82 @@ export default function KnowledgeBasePage() {
                                 Ajouter un article
                             </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-[500px]">
+                        <DialogContent className="sm:max-w-[440px]">
                             <DialogHeader>
-                                <DialogTitle>Ajouter un nouvel article</DialogTitle>
+                                <DialogTitle>Indexer un document PDF</DialogTitle>
                                 <DialogDescription>
-                                    Ajoutez du contenu manuellement ou importez un document.
+                                    Le document sera découpé, vectorisé et stocké dans la base de connaissances.
                                 </DialogDescription>
                             </DialogHeader>
 
                             <div className="grid gap-4 py-4">
+                                {/* name */}
                                 <div className="grid gap-2">
-                                    <Label htmlFor="title">Titre</Label>
+                                    <Label htmlFor="item-name">Nom <span className="text-muted-foreground font-normal">(optionnel)</span></Label>
                                     <Input
-                                        id="title"
-                                        value={newArticle.title}
-                                        onChange={(e) => setNewArticle({ ...newArticle, title: e.target.value })}
-                                        placeholder="Titre de l'article"
+                                        id="item-name"
+                                        value={newItem.name}
+                                        onChange={(e) => setNewItem(prev => ({ ...prev, name: e.target.value }))}
+                                        placeholder="Ex : Guide d'installation v2"
                                     />
                                 </div>
+
+                                {/* category */}
                                 <div className="grid gap-2">
-                                    <Label htmlFor="category">Catégorie</Label>
+                                    <Label htmlFor="item-category">Catégorie</Label>
                                     <Select
-                                        value={newArticle.category}
-                                        onValueChange={(value) => setNewArticle({ ...newArticle, category: value })}
+                                        value={newItem.category}
+                                        onValueChange={(v) => setNewItem(prev => ({ ...prev, category: v }))}
                                     >
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Sélectionner une catégorie" />
+                                        <SelectTrigger id="item-category">
+                                            <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="FAQ">FAQ</SelectItem>
-                                            <SelectItem value="Guides">Guides</SelectItem>
-                                            <SelectItem value="Documentation">Documentation</SelectItem>
-                                            <SelectItem value="Vidéos">Vidéos</SelectItem>
-                                            <SelectItem value="Formés IA">Formés IA</SelectItem>
+                                            <SelectItem value="pdf">PDF</SelectItem>
+                                            <SelectItem value="documentation">Documentation</SelectItem>
+                                            <SelectItem value="guide">Guide</SelectItem>
+                                            <SelectItem value="faq">FAQ</SelectItem>
+                                            <SelectItem value="autre">Autre</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="tags">Tags</Label>
-                                    <Input
-                                        id="tags"
-                                        value={newArticle.tags}
-                                        onChange={(e) => setNewArticle({ ...newArticle, tags: e.target.value })}
-                                        placeholder="Ex: API, Tutoriel"
-                                    />
-                                </div>
 
-                                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                                    <TabsList className="grid w-full grid-cols-2">
-                                        <TabsTrigger value="write">Rédiger</TabsTrigger>
-                                        <TabsTrigger value="upload">Importer</TabsTrigger>
-                                    </TabsList>
-                                    <TabsContent value="write" className="space-y-2 mt-4">
-                                        <Label htmlFor="summary">Contenu / Résumé</Label>
-                                        <Textarea
-                                            id="summary"
-                                            value={newArticle.summary}
-                                            onChange={(e) => setNewArticle({ ...newArticle, summary: e.target.value })}
-                                            placeholder="Écrivez le contenu de votre article ici..."
-                                            className="min-h-[150px]"
-                                        />
-                                    </TabsContent>
-                                    <TabsContent value="upload" className="space-y-4 mt-4">
-                                        <div className="border-2 border-dashed border-muted-foreground/25 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:bg-muted/30 transition-colors cursor-pointer"
-                                            onClick={() => document.getElementById('file-upload')?.click()}
-                                        >
-                                            <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                                                <Upload className="h-6 w-6 text-primary" />
-                                            </div>
-                                            <p className="text-sm font-medium">
-                                                {newArticle.fileName ? newArticle.fileName : "Cliquez pour importer un fichier"}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                PDF, DOCX, ou TXT jusqu'à 10MB
-                                            </p>
-                                            <Input
-                                                id="file-upload"
-                                                type="file"
-                                                className="hidden"
-                                                onChange={handleFileChange}
-                                                accept=".pdf,.doc,.docx,.txt"
-                                            />
+                                {/* file */}
+                                <div className="grid gap-2">
+                                    <Label>Fichier PDF</Label>
+                                    <div
+                                        className="border-2 border-dashed border-muted-foreground/25 rounded-xl p-6 flex flex-col items-center justify-center text-center hover:bg-muted/30 transition-colors cursor-pointer"
+                                        onClick={() => document.getElementById("file-upload")?.click()}
+                                    >
+                                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                                            <Upload className="h-5 w-5 text-primary" />
                                         </div>
-                                    </TabsContent>
-                                </Tabs>
+                                        <p className="text-sm font-medium">
+                                            {newItem.fileName || "Cliquez pour choisir un fichier"}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground mt-1">PDF uniquement · 10 Mo max</p>
+                                        <Input
+                                            id="file-upload"
+                                            type="file"
+                                            className="hidden"
+                                            onChange={handleFileChange}
+                                            accept=".pdf"
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
-                            <DialogFooter>
-                                <Button onClick={handleAddArticle}>
-                                    {activeTab === "upload" ? "Importer et Créer" : "Publier l'article"}
+                            <DialogFooter className="flex-col items-start gap-2 sm:flex-row sm:items-center">
+                                {pdfMessage && <p className="text-sm text-green-600 flex-1">{pdfMessage}</p>}
+                                {pdfError && <p className="text-sm text-red-600 flex-1">{pdfError}</p>}
+                                <Button
+                                    onClick={handleAddArticle}
+                                    disabled={isPdfUploading || !selectedFile}
+                                >
+                                    {isPdfUploading
+                                        ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Indexation...</>
+                                        : "Importer et Indexer"
+                                    }
                                 </Button>
                             </DialogFooter>
                         </DialogContent>
@@ -282,46 +341,49 @@ export default function KnowledgeBasePage() {
                 {/* Filter Bar */}
                 <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
                     <FilterChip label="Tout" active={activeFilter === "Tout"} onClick={() => setActiveFilter("Tout")} />
-                    <FilterChip label="FAQ" icon={<HelpCircle className="h-3.5 w-3.5" />} active={activeFilter === "FAQ"} onClick={() => setActiveFilter("FAQ")} />
-                    <FilterChip label="Guides" icon={<Book className="h-3.5 w-3.5" />} active={activeFilter === "Guides"} onClick={() => setActiveFilter("Guides")} />
-                    <FilterChip label="Documentation" icon={<FileText className="h-3.5 w-3.5" />} active={activeFilter === "Documentation"} onClick={() => setActiveFilter("Documentation")} />
-                    <FilterChip label="Vidéos" icon={<Video className="h-3.5 w-3.5" />} active={activeFilter === "Vidéos"} onClick={() => setActiveFilter("Vidéos")} />
-                    <FilterChip label="Formés IA" icon={<Cpu className="h-3.5 w-3.5" />} active={activeFilter === "Formés IA"} onClick={() => setActiveFilter("Formés IA")} />
+                    <FilterChip label="PDF" icon={<FileText className="h-3.5 w-3.5" />} active={activeFilter === "PDF"} onClick={() => setActiveFilter("PDF")} />
+                    <FilterChip label="URL" icon={<Globe className="h-3.5 w-3.5" />} active={activeFilter === "URL"} onClick={() => setActiveFilter("URL")} />
                 </div>
             </div>
 
             <div className="p-8 space-y-8 max-w-7xl mx-auto w-full">
 
-                {/* Metrics Summary Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Metrics */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <MetricCard
                         icon={<FileText className="h-6 w-6 text-blue-500" />}
-                        value={`${articles.length}`}
-                        label="Articles Totaux"
+                        value={`${items.length}`}
+                        label="Sources indexées"
                     />
                     <MetricCard
                         icon={<Cpu className="h-6 w-6 text-purple-500" />}
-                        value="128"
-                        label="Indexés IA"
+                        value={`${items.reduce((s, i) => s + i.chunks, 0)}`}
+                        label="Segments totaux"
                     />
                     <MetricCard
-                        icon={<Eye className="h-6 w-6 text-green-500" />}
-                        value="45.2k"
-                        label="Vues ce mois"
-                    />
-                    <MetricCard
-                        icon={<Star className="h-6 w-6 text-yellow-500" />}
-                        value="4.7/5"
-                        label="Note moyenne"
+                        icon={<Globe className="h-6 w-6 text-green-500" />}
+                        value={`${items.filter(i => i.source_type === "url").length}`}
+                        label="URLs indexées"
                     />
                 </div>
 
-                {/* Article Content Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {filteredArticles.map((article, index) => (
-                        <ArticleCard key={index} article={article} />
-                    ))}
-                </div>
+                {/* Items Grid */}
+                {isLoading ? (
+                    <div className="flex items-center justify-center py-16 text-muted-foreground">
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Chargement...
+                    </div>
+                ) : filteredItems.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+                        <FileText className="h-10 w-10 opacity-30" />
+                        <p className="text-sm">Aucune source indexée pour l&apos;instant.</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {filteredItems.map((item) => (
+                            <SourceCard key={item.id} item={item} onDelete={handleDeleteItem} />
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     )
@@ -357,110 +419,87 @@ function MetricCard({ icon, value, label }: { icon: React.ReactNode, value: stri
     )
 }
 
-function ArticleCard({ article }: { article: any }) {
+function SourceCard({ item, onDelete }: { item: KnowledgeItem; onDelete: (id: number) => Promise<void> }) {
+    const isPdf = item.source_type === "pdf"
+    const displayName = item.name || item.source
+    const date = new Date(item.date_creation).toLocaleDateString("fr-FR", {
+        day: "numeric", month: "short", year: "numeric"
+    })
+    const [isDeleting, setIsDeleting] = useState(false)
+
+    const handleDelete = async () => {
+        if (!confirm(`Supprimer "${displayName}" et ses ${item.chunks} segments ?`)) return
+        setIsDeleting(true)
+        await onDelete(item.id)
+        setIsDeleting(false)
+    }
+
     return (
-        <Card className="hover:shadow-md transition-shadow cursor-pointer group">
-            <CardHeader className="space-y-3 pb-3">
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-primary/5 text-primary flex items-center justify-center shrink-0">
-                            {article.icon}
-                        </div>
-                        <div>
-                            <CardTitle className="text-lg leading-tight group-hover:text-primary transition-colors">
-                                {article.title}
-                            </CardTitle>
-                            <div className="flex gap-2 mt-2">
-                                {article.tags.map((tag: string) => (
-                                    <Badge key={tag} variant="secondary" className="font-normal text-xs bg-muted/50 text-muted-foreground">
-                                        {tag}
-                                    </Badge>
-                                ))}
+        <Card className="hover:shadow-md transition-shadow group">
+            <CardHeader className="pb-3">
+                <div className="flex gap-3 items-start">
+                    <div className="h-10 w-10 rounded-lg bg-primary/5 text-primary flex items-center justify-center shrink-0 mt-0.5">
+                        {isPdf ? <FileText className="h-5 w-5" /> : <Globe className="h-5 w-5" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                                <CardTitle className="text-base leading-snug line-clamp-2">
+                                    {displayName}
+                                </CardTitle>
+                                {item.name && (
+                                    <p className="text-xs text-muted-foreground mt-0.5 truncate" title={item.source}>
+                                        {item.source}
+                                    </p>
+                                )}
                             </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/10 transition-all"
+                                onClick={handleDelete}
+                                disabled={isDeleting}
+                            >
+                                {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            </Button>
+                        </div>
+                        <div className="flex gap-2 mt-2 flex-wrap items-center">
+                            <Badge className="bg-green-100 text-green-700 border-green-200 font-normal text-xs">
+                                Indexé
+                            </Badge>
+                            <Badge variant="secondary" className="font-normal text-xs bg-muted/50 text-muted-foreground uppercase">
+                                {item.source_type}
+                            </Badge>
+                            {item.category && (
+                                <Badge variant="secondary" className="font-normal text-xs bg-muted/50 text-muted-foreground">
+                                    {item.category}
+                                </Badge>
+                            )}
                         </div>
                     </div>
                 </div>
             </CardHeader>
-            <CardContent className="pb-3">
-                <p className="text-sm text-muted-foreground line-clamp-2">
-                    {article.summary}
-                </p>
-            </CardContent>
             <CardFooter className="pt-3 border-t bg-muted/5 flex items-center justify-between text-xs text-muted-foreground">
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-1">
-                        <Eye className="h-3.5 w-3.5" />
-                        {article.views}
+                        <Cpu className="h-3.5 w-3.5" />
+                        {item.chunks} segments
                     </div>
-                    <div className="flex items-center gap-1">
-                        <Star className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500/20" />
-                        {article.rating}
-                    </div>
-                    <span>{article.date}</span>
+                    {item.pages != null && (
+                        <div className="flex items-center gap-1">
+                            <FileText className="h-3.5 w-3.5" />
+                            {item.pages} pages
+                        </div>
+                    )}
+                    {!isPdf && (
+                        <div className="flex items-center gap-1">
+                            <Link className="h-3.5 w-3.5" />
+                            URL
+                        </div>
+                    )}
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground">
-                        <Edit2 className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
-                        <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                </div>
+                <span>{date}</span>
             </CardFooter>
         </Card>
     )
 }
-
-function getIconForCategory(category: string) {
-    switch (category) {
-        case "FAQ": return <HelpCircle className="h-5 w-5" />
-        case "Guides": return <Book className="h-5 w-5" />
-        case "Documentation": return <FileText className="h-5 w-5" />
-        case "Vidéos": return <Video className="h-5 w-5" />
-        case "Formés IA": return <Cpu className="h-5 w-5" />
-        default: return <FileText className="h-5 w-5" />
-    }
-}
-
-const INITIAL_ARTICLES = [
-    {
-        title: "Comment réinitialiser votre mot de passe ?",
-        summary: "Guide étape par étape pour réinitialiser votre mot de passe en toute sécurité via le portail client ou l'application mobile.",
-        icon: <Lightbulb className="h-5 w-5" />,
-        tags: ["Compte", "Sécurité"],
-        views: "2.4k",
-        rating: "4.8",
-        date: "Il y a 2 jours",
-        category: "FAQ"
-    },
-    {
-        title: "Comprendre votre facture mensuelle",
-        summary: "Explication détaillée des différents frais et taxes qui peuvent apparaître sur votre facture de fin de mois.",
-        icon: <FileText className="h-5 w-5" />,
-        tags: ["Facturation", "Finance"],
-        views: "1.8k",
-        rating: "4.5",
-        date: "Il y a 1 semaine",
-        category: "Guides"
-    },
-    {
-        title: "Intégration de l'API REST",
-        summary: "Documentation technique pour les développeurs souhaitant intégrer notre solution via l'API REST.",
-        icon: <Cpu className="h-5 w-5" />,
-        tags: ["API", "Développeurs"],
-        views: "956",
-        rating: "4.9",
-        date: "Il y a 3 semaines",
-        category: "Documentation"
-    },
-    {
-        title: "Tutoriel vidéo : Configuration initiale",
-        summary: "Regardez cette vidéo de 5 minutes pour apprendre à configurer votre compte pour la première fois.",
-        icon: <Video className="h-5 w-5" />,
-        tags: ["Tutoriel", "Onboarding"],
-        views: "5.1k",
-        rating: "4.7",
-        date: "Il y a 1 mois",
-        category: "Vidéos"
-    }
-]

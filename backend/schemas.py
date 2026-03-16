@@ -11,7 +11,7 @@ class UserCreate(BaseModel):
     password: str
     prenom: Optional[str] = None
     nom: Optional[str] = None
-    id_role: int
+    id_role: Optional[int] = 0
 
     class Config:
         from_attributes = True
@@ -91,6 +91,27 @@ class KnowledgeIngestResponse(BaseModel):
     url: str
     category: str
     urls_scraped: int
+
+class KnowledgeSourceResponse(BaseModel):
+    id: int
+    name: Optional[str] = None
+    source: str
+    source_type: str
+    category: Optional[str] = None
+    chunks: int
+    pages: Optional[int] = None
+    date_creation: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PdfIngestResponse(BaseModel):
+    inserted: int
+    chunks: int
+    filename: str
+    category: str
+    pages: int
 
 class MeResponse(BaseModel):
     id: int

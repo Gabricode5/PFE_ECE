@@ -1,4 +1,4 @@
-fastapi
+fastapi[standard]
 uvicorn
 requests
 psycopg2-binary
@@ -19,7 +19,12 @@ ollama
 langchain-community
 beautifulsoup4
 langchain-text-splitters
+langchain-postgres 
+pypdf
+langchain
 
 #Base de données Vectorielle (RAG)
-chromadb
+langchain-postgres
 langchain-ollama
+psycopg[binary]
+pgcli

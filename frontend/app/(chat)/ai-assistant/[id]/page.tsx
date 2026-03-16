@@ -19,6 +19,7 @@ import {
     Zap,
     Sparkles
 } from "lucide-react"
+import { Streamdown } from "streamdown"
 
 type ChatMessage = {
     id: string
@@ -178,6 +179,10 @@ export default function AiAssistantPage() {
 
         setIsSending(true)
 
+        const streamId = makeId()
+        const now = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+        setMessages(prev => [...prev, { id: streamId, role: "ai", content: "", createdAt: now }])
+
         try {
             const token = getAuthToken()
             if (!token) {
@@ -193,24 +198,28 @@ export default function AiAssistantPage() {
 
             const response = await fetch(
                 `/api/ask?question=${encodeURIComponent(trimmed)}&session_id=${sessionIdNumber}`,
-                {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${token}`
-                    }
-                }
+                { method: "POST", headers: { Authorization: `Bearer ${token}` } }
             )
 
-            const data = await response.json()
-
-            const aiMsg: ChatMessage = {
-                id: makeId(),
-                role: "ai",
-                content: data.response || data.message || "Désolé, je n'ai pas pu traiter la demande.",
-                createdAt: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+            if (!response.ok || !response.body) {
+                setError("Erreur de l'assistant IA.")
+                setIsSending(false)
+                return
             }
-            setMessages(prev => [...prev, aiMsg])
-        } catch (err) {
+
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let accumulated = ""
+
+            while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+                accumulated += decoder.decode(value, { stream: true })
+                setMessages(prev =>
+                    prev.map(m => m.id === streamId ? { ...m, content: accumulated } : m)
+                )
+            }
+        } catch {
             setError("Erreur de connexion au serveur.")
         } finally {
             setIsSending(false)
@@ -267,7 +276,19 @@ export default function AiAssistantPage() {
                             <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                                 <div className={`max-w-[80%] space-y-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
                                     <div className={`rounded-2xl px-5 py-3 text-sm shadow-sm ${m.role === "user" ? "bg-indigo-600 text-white" : "bg-white border-2 border-slate-100 text-slate-700"}`}>
-                                        {m.content}
+                                        {m.role === "user" ? (
+                                            m.content
+                                        ) : m.content ? (
+                                            <Streamdown animated isAnimating={isSending && messages[messages.length - 1]?.id === m.id}>
+                                                {m.content}
+                                            </Streamdown>
+                                        ) : (
+                                            <span className="inline-flex gap-1 items-center text-slate-400">
+                                                <span className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-bounce [animation-delay:0ms]" />
+                                                <span className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-bounce [animation-delay:150ms]" />
+                                                <span className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-bounce [animation-delay:300ms]" />
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="text-[10px] text-slate-400 font-bold px-2 uppercase tracking-tighter">
                                         {m.role === "user" ? username : "Assistant IA"} • {m.createdAt}
