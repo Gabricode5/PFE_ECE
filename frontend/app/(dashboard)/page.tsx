@@ -34,6 +34,7 @@ type SessionItem = {
     id: number
     title?: string | null
     date_creation?: string | null
+    status?: string | null
 }
 
 type MessageItem = {
@@ -48,14 +49,6 @@ type BackendMessageItem = {
     type_envoyeur: "user" | "ai" | "sav"
     contenu?: string | null
     date_creation?: string | null
-}
-
-function getAuthToken(): string | null {
-    const tokenPair = document.cookie
-        .split("; ")
-        .find((entry) => entry.startsWith("auth_token="))
-    if (!tokenPair) return null
-    return tokenPair.split("=")[1] || null
 }
 
 export default function DashboardPage() {
@@ -78,6 +71,7 @@ export default function DashboardPage() {
     const [isLoadingUser, setIsLoadingUser] = useState(false)
     const [userError, setUserError] = useState<string | null>(null)
     const [currentUserId, setCurrentUserId] = useState<number | null>(null)
+    const [closingSessionId, setClosingSessionId] = useState<number | null>(null)
 
     useEffect(() => {
         const storedRole = localStorage.getItem("user_role") || "user"
@@ -92,18 +86,20 @@ export default function DashboardPage() {
         async function loadUserSessions() {
             setIsLoadingUser(true)
             setUserError(null)
-            const token = getAuthToken()
             const userId = localStorage.getItem("user_id")
-            if (!token || !userId) {
+            if (!userId) {
                 setUserError("Session expirée. Veuillez vous reconnecter.")
                 setIsLoadingUser(false)
                 return
             }
 
             try {
-                const response = await fetch(`/api/sessions?user_id=${userId}`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
+                const response = await fetch(`/api/sessions?user_id=${userId}`)
+                if (response.status === 401) {
+                    setUserError("Session expirée. Veuillez vous reconnecter.")
+                    setIsLoadingUser(false)
+                    return
+                }
                 if (!response.ok) {
                     setUserError("Impossible de charger vos conversations.")
                     setIsLoadingUser(false)
@@ -125,26 +121,19 @@ export default function DashboardPage() {
     const loadAdminData = async () => {
         setIsLoadingAdmin(true)
         setAdminError(null)
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            setIsLoadingAdmin(false)
-            return
-        }
 
         try {
             const [usersRes, savRes, adminsRes] = await Promise.all([
-                fetch("/api/users?role=user", {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                fetch("/api/users?role=sav", {
-                    headers: { Authorization: `Bearer ${token}` }
-                }),
-                fetch("/api/users?role=admin", {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
+                fetch("/api/users?role=user"),
+                fetch("/api/users?role=sav"),
+                fetch("/api/users?role=admin")
             ])
 
+            if (usersRes.status === 401 || savRes.status === 401 || adminsRes.status === 401) {
+                setAdminError("Session expirée. Veuillez vous reconnecter.")
+                setIsLoadingAdmin(false)
+                return
+            }
             if (!usersRes.ok || !savRes.ok || !adminsRes.ok) {
                 setAdminError("Impossible de charger les utilisateurs.")
                 setIsLoadingAdmin(false)
@@ -172,25 +161,22 @@ export default function DashboardPage() {
 
     const handleChangeUserRole = async (userItem: UserItem, newRole: "user" | "sav" | "admin") => {
         setAdminError(null)
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         setUpdatingRoleUserId(userItem.id)
         try {
             const response = await fetch(`/api/users/${userItem.id}/role`, {
                 method: "PUT",
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({ role: newRole })
             })
 
             const data = await response.json()
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setAdminError(data?.detail || "Impossible de modifier le rôle.")
                 return
             }
@@ -210,12 +196,6 @@ export default function DashboardPage() {
 
     const handleEditUser = async (userItem: UserItem) => {
         setAdminError(null)
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         const username = window.prompt("Nom d'utilisateur", userItem.username)
         if (username === null) return
         const email = window.prompt("Email", userItem.email)
@@ -232,8 +212,7 @@ export default function DashboardPage() {
             const response = await fetch(`/api/users/${userItem.id}`, {
                 method: "PUT",
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
                     username: username.trim(),
@@ -246,6 +225,10 @@ export default function DashboardPage() {
 
             const data = await response.json()
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setAdminError(data?.detail || "Impossible de modifier l'utilisateur.")
                 return
             }
@@ -264,23 +247,20 @@ export default function DashboardPage() {
 
     const handleDeleteUser = async (userItem: UserItem) => {
         setAdminError(null)
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         const confirmed = window.confirm(`Supprimer le compte ${userItem.username} ?`)
         if (!confirmed) return
 
         setUpdatingUserId(userItem.id)
         try {
             const response = await fetch(`/api/users/${userItem.id}`, {
-                method: "DELETE",
-                headers: { Authorization: `Bearer ${token}` }
+                method: "DELETE"
             })
 
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 const data = await response.json()
                 setAdminError(data?.detail || "Impossible de supprimer l'utilisateur.")
                 return
@@ -308,17 +288,13 @@ export default function DashboardPage() {
         setMessages([])
         setAdminError(null)
 
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         try {
-            const response = await fetch(`/api/sessions?user_id=${userItem.id}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
+            const response = await fetch(`/api/sessions?user_id=${userItem.id}`)
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setAdminError("Impossible de charger les sessions.")
                 return
             }
@@ -335,17 +311,13 @@ export default function DashboardPage() {
         setMessages([])
         setAdminError(null)
 
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         try {
-            const response = await fetch(`/api/messages?session_id=${sessionItem.id}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
+            const response = await fetch(`/api/messages?session_id=${sessionItem.id}`)
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setAdminError("Impossible de charger les messages.")
                 return
             }
@@ -365,22 +337,53 @@ export default function DashboardPage() {
         }
     }
 
+    const handleCloseSession = async (sessionItem: SessionItem) => {
+        const confirmed = window.confirm(`Clôturer la session #${sessionItem.id} ?`)
+        if (!confirmed) return
+
+        setClosingSessionId(sessionItem.id)
+        try {
+            const response = await fetch(`/api/sessions/${sessionItem.id}/close`, {
+                method: "POST"
+            })
+            if (!response.ok) {
+                const data = await response.json()
+                const message = data?.detail || "Impossible de clôturer la session."
+                setAdminError(message)
+                setUserError(message)
+                return
+            }
+
+            if (role === "admin" && selectedUser) {
+                await handleSelectUser(selectedUser)
+            } else {
+                const userId = localStorage.getItem("user_id")
+                if (userId) {
+                    const refresh = await fetch(`/api/sessions?user_id=${userId}`)
+                    if (refresh.ok) {
+                        const data = await refresh.json()
+                        setUserSessions(data)
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Erreur clôture session :", error)
+            setAdminError("Erreur réseau.")
+            setUserError("Erreur réseau.")
+        } finally {
+            setClosingSessionId(null)
+        }
+    }
+
     const handleReply = async () => {
         const trimmed = reply.trim()
         if (!trimmed || !selectedSession) return
-
-        const token = getAuthToken()
-        if (!token) {
-            setAdminError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
 
         try {
             const response = await fetch("/api/messages", {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
                     id_session: selectedSession.id,
@@ -389,6 +392,10 @@ export default function DashboardPage() {
                 })
             })
             if (!response.ok) {
+                if (response.status === 401) {
+                    setAdminError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 const data = await response.json()
                 setAdminError(data?.detail || "Impossible d'envoyer la réponse.")
                 return
@@ -618,6 +625,22 @@ export default function DashboardPage() {
                                         >
                                             <div className="text-sm font-medium">{s.title || "Sans titre"}</div>
                                             <div className="text-xs text-muted-foreground">Session #{s.id}</div>
+                                            <div className="mt-2 flex items-center gap-2">
+                                                <Badge variant="secondary" className={`${s.status === "closed" ? "bg-slate-200 text-slate-700" : "bg-emerald-100 text-emerald-700"} border-0`}>
+                                                    {s.status === "closed" ? "Clôturée" : "Ouverte"}
+                                                </Badge>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation()
+                                                        handleCloseSession(s)
+                                                    }}
+                                                    disabled={closingSessionId === s.id || s.status === "closed"}
+                                                >
+                                                    {closingSessionId === s.id ? "..." : "Clôturer"}
+                                                </Button>
+                                            </div>
                                         </button>
                                     ))
                                 )}
@@ -803,10 +826,18 @@ export default function DashboardPage() {
                                     <div className="text-sm text-muted-foreground">Aucune conversation.</div>
                                 ) : (
                                     filteredSessions.map((session) => (
-                                        <button
+                                        <div
                                             key={session.id}
+                                            role="button"
+                                            tabIndex={0}
                                             onClick={() => router.push(`/ai-assistant/${session.id}`)}
-                                            className="w-full flex items-center justify-between rounded-md border border-transparent hover:border-muted hover:bg-muted/30 px-3 py-2 transition"
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault()
+                                                    router.push(`/ai-assistant/${session.id}`)
+                                                }
+                                            }}
+                                            className="w-full flex items-center justify-between rounded-md border border-transparent hover:border-muted hover:bg-muted/30 px-3 py-2 transition cursor-pointer"
                                         >
                                             <div className="flex items-center gap-4">
                                                 <Avatar className="h-10 w-10 border">
@@ -829,12 +860,26 @@ export default function DashboardPage() {
                                                         ? new Date(session.date_creation).toLocaleDateString("fr-FR")
                                                         : "—"}
                                                 </span>
+                                                <Badge variant="secondary" className={`${session.status === "closed" ? "bg-slate-200 text-slate-700" : "bg-emerald-100 text-emerald-700"} border-0`}>
+                                                    {session.status === "closed" ? "Clôturée" : "Ouverte"}
+                                                </Badge>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation()
+                                                        handleCloseSession(session)
+                                                    }}
+                                                    disabled={closingSessionId === session.id || session.status === "closed"}
+                                                >
+                                                    {closingSessionId === session.id ? "..." : "Clôturer"}
+                                                </Button>
                                                 <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/15 border-0">
                                                     <Bot className="h-3 w-3 mr-1" />
                                                     IA Autonome
                                                 </Badge>
                                             </div>
-                                        </button>
+                                        </div>
                                     ))
                                 )}
                             </div>

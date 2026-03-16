@@ -61,6 +61,7 @@ class ChatSessionResponse(BaseModel):
     id: int
     id_utilisateur: int
     title: Optional[str]
+    status: str
     date_creation: datetime
 
     class Config:
@@ -86,11 +87,14 @@ class KnowledgeIngestRequest(BaseModel):
     category: Optional[str] = None
 
 class KnowledgeIngestResponse(BaseModel):
-    inserted: int
-    chunks: int
-    url: str
-    category: str
-    urls_scraped: int
+    status: str
+    message: Optional[str] = None
+    inserted: Optional[int] = None
+    chunks: Optional[int] = None
+    url: Optional[str] = None
+    category: Optional[str] = None
+    urls_scraped: Optional[int] = None
+    job_id: Optional[str] = None
 
 class KnowledgeSourceResponse(BaseModel):
     id: int
@@ -131,3 +135,9 @@ class MeUpdateRequest(BaseModel):
 class MePasswordUpdateRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class AskRequest(BaseModel):
+    question: str
+    session_id: int
+    mode: str = "rag_llm"

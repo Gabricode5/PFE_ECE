@@ -2,6 +2,10 @@ FROM node:20-slim
 
 WORKDIR /app
 
+# Permet d'injecter l'URL API au moment du build
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 # On copie uniquement les fichiers de dépendances pour le cache
 COPY package.json package-lock.json* ./
 

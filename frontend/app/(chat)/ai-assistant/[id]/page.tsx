@@ -35,14 +35,6 @@ type BackendChatMessage = {
     date_creation?: string | null
 }
 
-function getAuthToken(): string | null {
-    const tokenPair = document.cookie
-        .split("; ")
-        .find((entry) => entry.startsWith("auth_token="))
-    if (!tokenPair) return null
-    return tokenPair.split("=")[1] || null
-}
-
 function makeId(): string {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
@@ -100,12 +92,13 @@ export default function AiAssistantPage() {
         async function loadMessages() {
             if (!Number.isFinite(sessionIdNumber)) return
             try {
-                const token = getAuthToken()
-                if (!token) return
                 const response = await fetch(
-                    `/api/messages?session_id=${sessionIdNumber}`,
-                    { headers: { Authorization: `Bearer ${token}` } }
+                    `/api/messages?session_id=${sessionIdNumber}`
                 )
+                if (response.status === 401) {
+                    setError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 if (!response.ok) return
                 const data = await response.json()
                 if (!Array.isArray(data)) return
@@ -146,11 +139,6 @@ export default function AiAssistantPage() {
 
         if (!aiEnabled) {
             try {
-                const token = getAuthToken()
-                if (!token) {
-                    setError("Session expirée. Veuillez vous reconnecter.")
-                    return
-                }
                 if (!Number.isFinite(sessionIdNumber)) {
                     setError("Session invalide.")
                     return
@@ -158,8 +146,7 @@ export default function AiAssistantPage() {
                 const response = await fetch("/api/messages", {
                     method: "POST",
                     headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`
+                        "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
                         id_session: sessionIdNumber,
@@ -168,6 +155,10 @@ export default function AiAssistantPage() {
                     })
                 })
                 if (!response.ok) {
+                    if (response.status === 401) {
+                        setError("Session expirée. Veuillez vous reconnecter.")
+                        return
+                    }
                     const data = await response.json()
                     setError(data?.detail || "Erreur lors de l'enregistrement du message.")
                 }
@@ -184,12 +175,6 @@ export default function AiAssistantPage() {
         setMessages(prev => [...prev, { id: streamId, role: "ai", content: "", createdAt: now }])
 
         try {
-            const token = getAuthToken()
-            if (!token) {
-                setError("Session expirée. Veuillez vous reconnecter.")
-                setIsSending(false)
-                return
-            }
             if (!Number.isFinite(sessionIdNumber)) {
                 setError("Session invalide.")
                 setIsSending(false)

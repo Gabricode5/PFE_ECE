@@ -23,14 +23,6 @@ interface Conversation {
     title: string;
 }
 
-function getAuthToken(): string | null {
-    const tokenPair = document.cookie
-        .split("; ")
-        .find((entry) => entry.startsWith("auth_token="))
-    if (!tokenPair) return null
-    return tokenPair.split("=")[1] || null
-}
-
 export function AppSidebar() {
     const pathname = usePathname()
     
@@ -63,14 +55,14 @@ export function AppSidebar() {
     const fetchConversations = async () => {
         const userId = localStorage.getItem("user_id")
         if (!userId) return
-        const token = getAuthToken()
-        if (!token) return
 
         setIsLoadingConversations(true)
         try {
-            const response = await fetch(`/api/sessions?user_id=${userId}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
+            const response = await fetch(`/api/sessions?user_id=${userId}`)
+            if (response.status === 401) {
+                window.location.href = "/login"
+                return
+            }
             if (!response.ok) return
             const data = await response.json()
             const normalized: Conversation[] = data.map((item: { id: number | string; title?: string | null }) => ({
@@ -95,30 +87,21 @@ export function AppSidebar() {
             window.location.href = "/login"
             return
         }
-        const token = getAuthToken()
-        if (!token) {
-            window.location.href = "/login"
-            return
-        }
-
-        const titleInput = window.prompt("Titre de la conversation :", "Nouvelle conversation")
-        if (titleInput === null) return
-        const labelInput = window.prompt("Libellé (optionnel) :", "")
-        if (labelInput === null) return
-        const normalizedTitle = titleInput.trim() || "Nouvelle conversation"
-        const normalizedLabel = labelInput.trim()
-        const finalTitle = normalizedLabel ? `${normalizedLabel} - ${normalizedTitle}` : normalizedTitle
 
         try {
             const response = await fetch(`/api/sessions?user_id=${userId}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify({ title: finalTitle }),
+                // Laisse le backend gérer le titre automatiquement.
+                body: JSON.stringify({}),
             })
 
+            if (response.status === 401) {
+                window.location.href = "/login"
+                return
+            }
             if (!response.ok) return
             const newSession = await response.json()
             window.location.href = `/ai-assistant/${newSession.id}`
@@ -130,11 +113,14 @@ export function AppSidebar() {
     const handleDeleteConversation = async (conversationId: string) => {
         const confirmed = window.confirm("Supprimer cette conversation ?")
         if (!confirmed) return
-
         try {
             const response = await fetch(`/api/sessions/${conversationId}`, {
                 method: "DELETE"
             })
+            if (response.status === 401) {
+                window.location.href = "/login"
+                return
+            }
 
             if (!response.ok) return
             setConversations((prev) => prev.filter((chat) => chat.id !== conversationId))
@@ -152,11 +138,16 @@ export function AppSidebar() {
         return pathname?.startsWith(path)
     }
 
-    const handleLogout = () => {
-        document.cookie = "auth_token=; path=/; max-age=0; SameSite=Strict"
+    const handleLogout = async () => {
+        try {
+            await fetch("/api/logout", { method: "POST" })
+        } catch {
+            // continue
+        }
         localStorage.removeItem("username")
         localStorage.removeItem("user_email")
         localStorage.removeItem("user_role")
+        localStorage.removeItem("user_id")
         window.location.href = "/login"
     }
 

@@ -7,13 +7,18 @@ import { LogOut } from "lucide-react"
 export function LogoutButton() {
     const router = useRouter()
 
-    const handleLogout = () => {
-        // Suppression des cookies
-        document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; SameSite=Strict";
-        document.cookie = "token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; SameSite=Strict";
+    const handleLogout = async () => {
+        try {
+            await fetch("/api/logout", { method: "POST" });
+        } catch {
+            // On continue quand même la déconnexion locale.
+        }
 
         // Nettoyage local
         localStorage.removeItem("username");
+        localStorage.removeItem("user_email");
+        localStorage.removeItem("user_role");
+        localStorage.removeItem("user_id");
 
         // Redirection
         router.push("/login");

@@ -98,25 +98,24 @@ export default function KnowledgeBasePage() {
         setIngestMessage(null)
         setIngestError(null)
 
-        const token = getAuthToken()
-        if (!token) {
-            setIngestError("Session expirée. Veuillez vous reconnecter.")
-            return
-        }
-
         setIsIngesting(true)
+        let isBackgroundJob = false
         try {
             const response = await fetch("/api/knowledge-base/ingest-url", {
                 method: "POST",
+                credentials: "include",
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({ url: sourceUrl }),
             })
 
             const data = await response.json()
             if (!response.ok) {
+                if (response.status === 401) {
+                    setIngestError("Session expirée. Veuillez vous reconnecter.")
+                    return
+                }
                 setIngestError(data?.detail || "Impossible de lancer l'ingestion.")
                 setIsIngesting(false)
                 return

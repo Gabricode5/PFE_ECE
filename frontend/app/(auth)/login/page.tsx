@@ -41,11 +41,7 @@ function LoginForm() {
         const data = await response.json()
 
         if (response.ok) {
-            // 1. Stocker le token JWT dans les cookies ou localStorage
-            // Le backend renvoie { access_token: "...", token_type: "bearer", username: "..." }
-            document.cookie = `auth_token=${data.access_token}; path=/; max-age=3600; SameSite=Strict`
-            
-            // Stocker le pseudo pour l'affichage
+            // Le backend pose le cookie HttpOnly. On garde seulement les infos d'affichage.
             localStorage.setItem("username", data.username)
             localStorage.setItem("user_email", email as string)
             localStorage.setItem("user_role", data.nom_role)
@@ -121,4 +117,3 @@ function LoginForm() {
         </Card>
     )
 }
-

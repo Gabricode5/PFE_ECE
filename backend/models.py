@@ -32,13 +32,15 @@ class ChatSession(Base):
     id = Column(Integer, primary_key=True, index=True)
     id_utilisateur = Column(Integer, ForeignKey("utilisateur.id", ondelete="CASCADE"), nullable=False)
     title = Column(String(255), nullable=True)
+    status = Column(String(20), nullable=False, server_default="open")
     date_creation = Column(DateTime(timezone=True), server_default=func.now())
+    messages = relationship("ChatMessage", cascade="all, delete-orphan", passive_deletes=True)
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    id_session = Column(Integer, ForeignKey("chat_sessions.id"), nullable=False)
+    id_session = Column(Integer, ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
     type_envoyeur = Column(String(10), nullable=False)
     contenu = Column(Text, nullable=False)
     date_creation = Column(DateTime(timezone=True), server_default=func.now())
