@@ -45,25 +45,12 @@ class ChatMessage(Base):
     contenu = Column(Text, nullable=False)
     date_creation = Column(DateTime(timezone=True), server_default=func.now())
 
-class KnowledgeSource(Base):
-    __tablename__ = "knowledge_sources"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(Text, nullable=True)             # human-readable label
-    source = Column(Text, nullable=False)          # URL or filename
-    source_type = Column(String(10), nullable=False)  # "url" or "pdf"
-    category = Column(String(50), nullable=True)
-    chunks = Column(Integer, nullable=False)
-    pages = Column(Integer, nullable=True)         # PDF only
-    date_creation = Column(DateTime(timezone=True), server_default=func.now())
-
-
 class KnowledgeBase(Base):
     __tablename__ = "knowledge_base"
 
     id = Column(Integer, primary_key=True, index=True)
     source_message_id = Column(Integer, ForeignKey("chat_messages.id", ondelete="SET NULL"), nullable=True)
     contenu = Column(Text, nullable=False)
-    embedding = Column(Vector(768), nullable=False)
+    embedding = Column(Vector(1024), nullable=False)
     category = Column(String(50), nullable=True)
     date_creation = Column(DateTime(timezone=True), server_default=func.now())

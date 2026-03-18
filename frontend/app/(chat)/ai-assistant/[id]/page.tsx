@@ -41,28 +41,28 @@ function makeId(): string {
 
 const SUGGESTIONS = [
     { 
-        title: "Analyser les sentiments", 
-        desc: "Le client est-il satisfait ?", 
+        title: "Remboursement Stripe", 
+        desc: "Depuis le Dashboard Stripe", 
         icon: <Smile className="h-4 w-4 text-amber-500" />,
-        prompt: "Peux-tu analyser le sentiment dominant dans cette conversation ?"
+        prompt: "Comment rembourser un client depuis le Dashboard Stripe ?"
     },
     { 
-        title: "Résumé du ticket", 
-        desc: "Synthèse des points clés", 
+        title: "Annuler un remboursement", 
+        desc: "Remboursement déjà initié", 
         icon: <FileText className="h-4 w-4 text-blue-500" />,
-        prompt: "Fais-moi un résumé court et précis de ce ticket client."
+        prompt: "Peut-on annuler un remboursement déjà initié ?"
     },
     { 
-        title: "Réponse suggérée", 
-        desc: "Générer une réponse type", 
+        title: "Erreur carte ou CVV", 
+        desc: "Paiement refusé côté client", 
         icon: <MessageCircle className="h-4 w-4 text-emerald-500" />,
-        prompt: "Génère une réponse professionnelle et empathique pour ce client."
+        prompt: "Que faire si un client entre un mauvais numéro de carte ou un CVV incorrect ?"
     },
     { 
-        title: "Actions suivantes", 
-        desc: "Quoi faire après ?", 
+        title: "Délai de litige", 
+        desc: "Réponse à un dispute", 
         icon: <Zap className="h-4 w-4 text-purple-500" />,
-        prompt: "Quelles sont les prochaines étapes recommandées pour résoudre ce problème ?"
+        prompt: "Combien de temps ai-je pour répondre à un litige ?"
     },
 ];
 

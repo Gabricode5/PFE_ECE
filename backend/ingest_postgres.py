@@ -1,34 +1,81 @@
 from langchain_community.document_loaders import WebBaseLoader
-from langchain_text_splitters import HTMLHeaderTextSplitter, RecursiveCharacterTextSplitter
-from langchain_ollama import OllamaEmbeddings
-from langchain_postgres import PGVector
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
 import os
+import re
 import requests
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse, urljoin
 
+from mistral_client import embed_texts
+
 # On charge les variables du .env avant d'importer la base
 load_dotenv()
-if not os.environ.get("USER_AGENT"):
-    os.environ["USER_AGENT"] = "CRM-KnowledgeBot/1.0"
+from database import SessionLocal
+import models
 
 # 1. Configuration
 DEFAULT_URL = "https://www.service-public.fr/particuliers/vosdroits/F1342"
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "mistral-embed")
 DEFAULT_CATEGORY = os.getenv("KB_CATEGORY", "site_web")
 MAX_SITEMAP_URLS = int(os.getenv("MAX_SITEMAP_URLS", "50"))
 REQUEST_TIMEOUT = int(os.getenv("SCRAPE_TIMEOUT", "10"))
-COLLECTION_NAME = "rag_documents"
-
-def _get_connection_string() -> str:
-    raw = os.getenv("DATABASE_URL", "postgresql://admin:Password1234@localhost:5432/ticketdb")
-    # langchain-postgres requires psycopg3 driver prefix
-    return raw.replace("postgresql://", "postgresql+psycopg://", 1)
+EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "12"))
+MAX_KB_CHUNKS = int(os.getenv("MAX_KB_CHUNKS", "80"))
 
 # User-Agent simple pour éviter certains blocages côté sites
 DEFAULT_HEADERS = {"User-Agent": "Mozilla/5.0"}
+NON_HTML_EXTENSIONS = (
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".zip", ".rar",
+    ".7z", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp",
+    ".mp3", ".wav", ".mp4", ".avi", ".mov", ".wmv", ".webm", ".woff", ".woff2",
+    ".ttf", ".otf", ".eot", ".css", ".js", ".json", ".xml"
+)
+MIN_TEXT_LENGTH = int(os.getenv("MIN_TEXT_LENGTH", "80"))
+MAX_WEIRD_CHAR_RATIO = float(os.getenv("MAX_WEIRD_CHAR_RATIO", "0.2"))
+BINARY_SIGNATURE_PATTERNS = (
+    "Exif",
+    "xmp.did",
+    "Adobe",
+    "Photoshop",
+    "JFIF",
+    "ICC_PROFILE",
+)
+
+
+def _sanitize_text(value: str) -> str:
+    sanitized = value.replace("\x00", "")
+    sanitized = re.sub(r"[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]", " ", sanitized)
+    sanitized = re.sub(r"\s+", " ", sanitized)
+    return sanitized.strip()
+
+
+def _looks_like_binary_text(value: str) -> bool:
+    if not value:
+        return True
+
+    weird_chars = sum(1 for char in value if ord(char) == 65533 or (not char.isprintable() and not char.isspace()))
+    if weird_chars / max(len(value), 1) > MAX_WEIRD_CHAR_RATIO:
+        return True
+
+    replacement_ratio = value.count("�") / max(len(value), 1)
+    if replacement_ratio > 0.02:
+        return True
+
+    lowered = value.lower()
+    if any(signature.lower() in lowered for signature in BINARY_SIGNATURE_PATTERNS):
+        return True
+
+    long_token_match = re.search(r"[A-Za-z0-9+/=]{120,}", value)
+    if long_token_match:
+        return True
+
+    return False
+
+
+def _is_allowed_url(page_url: str) -> bool:
+    lowered_path = urlparse(page_url).path.lower()
+    return not lowered_path.endswith(NON_HTML_EXTENSIONS)
 
 
 def _extract_loc_urls_from_xml(xml_text: str) -> list[str]:
@@ -132,29 +179,26 @@ def _collect_urls_from_sitemap(base_url: str) -> list[str]:
     return unique_urls[:MAX_SITEMAP_URLS]
 
 
-_HTML_HEADERS = [("h1", "H1"), ("h2", "H2"), ("h3", "H3"), ("h4", "H4")]
-_html_splitter = HTMLHeaderTextSplitter(headers_to_split_on=_HTML_HEADERS)
-# Fallback splitter: only kicks in when a section exceeds max_chunk chars
-_fallback_splitter = RecursiveCharacterTextSplitter(
-    separators=["\n\n\n", "\n\n", "\n", ". "],
-    chunk_size=2000,
-    chunk_overlap=0,
-)
-
-
 def _load_documents_from_urls(urls: list[str]) -> list:
+    # Cette fonction charge les pages web pour LangChain
     docs = []
     for page_url in urls:
+        if not _is_allowed_url(page_url):
+            print(f"Page ignorée (extension non textuelle): {page_url}")
+            continue
         try:
-            # Fetch raw HTML so HTMLHeaderTextSplitter can read the heading structure
-            resp = requests.get(page_url, headers=DEFAULT_HEADERS, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            html = resp.text
-            sections = _html_splitter.split_text(html)
-            for sec in sections:
-                sec.metadata.setdefault("source", page_url)
-            # If a section is still huge, break it further — but keep heading metadata
-            docs.extend(_fallback_splitter.split_documents(sections))
+            loader = WebBaseLoader(page_url)
+            loader.requests_kwargs = {"headers": DEFAULT_HEADERS, "timeout": REQUEST_TIMEOUT}
+            loaded_docs = loader.load()
+            for doc in loaded_docs:
+                content = _sanitize_text(doc.page_content or "")
+                if len(content) < MIN_TEXT_LENGTH:
+                    continue
+                if _looks_like_binary_text(content):
+                    print(f"Contenu ignoré (binaire ou corrompu): {page_url}")
+                    continue
+                doc.page_content = content
+                docs.append(doc)
         except Exception as e:
             print(f"Page ignorée (erreur): {page_url} -> {e}")
     return docs
@@ -177,33 +221,57 @@ def ingest_to_postgres(url: str | None = None, category: str | None = None):
         raise ValueError("Aucun contenu récupéré. Vérifie l'URL ou les permissions du site.")
     print(f"Pages chargées avec succès: {len(docs)} document(s).")
 
-    # chunks are already produced by _load_documents_from_urls (section-based)
-    chunks = docs
-    print(f"✂️ {len(chunks)} sections créées.")
-
-    # Tag source metadata on every chunk
+    # 5. Découpage du texte (Chunking)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    chunks = text_splitter.split_documents(docs)
     for chunk in chunks:
-        chunk.metadata["source"] = source_url
-        chunk.metadata["category"] = category_value
+        chunk.page_content = _sanitize_text(chunk.page_content)
+    chunks = [
+        chunk
+        for chunk in chunks
+        if chunk.page_content
+        and len(chunk.page_content) >= MIN_TEXT_LENGTH
+        and not _looks_like_binary_text(chunk.page_content)
+    ]
+    original_chunk_count = len(chunks)
+    if MAX_KB_CHUNKS > 0:
+        chunks = chunks[:MAX_KB_CHUNKS]
+    print(f"✂️ {len(chunks)} morceaux créés.")
 
-    # 7. Embed & persist via langchain-postgres PGVector
-    print("Connexion à Postgres et insertion via PGVector...")
-    embed = OllamaEmbeddings(model=EMBED_MODEL, base_url=OLLAMA_URL)
-    PGVector.from_documents(
-        documents=chunks,
-        embedding=embed,
-        collection_name=COLLECTION_NAME,
-        connection=_get_connection_string(),
-        use_jsonb=True,
-    )
-    print(f"✅ Mission accomplie ! {len(chunks)} chunks insérés.")
-    return {
-        "inserted": len(chunks),
-        "chunks": len(chunks),
-        "url": source_url,
-        "category": category_value,
-        "urls_scraped": len(urls_to_scrape),
-    }
+    # 6. Insertion directe dans la table SQL custom knowledge_base
+    print("Connexion à Postgres et insertion dans knowledge_base...")
+    db = SessionLocal()
+    inserted = 0
+    try:
+        chunk_texts = [chunk.page_content for chunk in chunks]
+        for start in range(0, len(chunk_texts), EMBED_BATCH_SIZE):
+            batch_texts = chunk_texts[start:start + EMBED_BATCH_SIZE]
+            batch_vectors = embed_texts(batch_texts, model=EMBED_MODEL, timeout=REQUEST_TIMEOUT)
+            for text, vector in zip(batch_texts, batch_vectors, strict=True):
+                row = models.KnowledgeBase(
+                    source_message_id=None,
+                    contenu=text,
+                    embedding=vector,
+                    category=category_value,
+                )
+                db.add(row)
+                inserted += 1
+
+        db.commit()
+        print(f"✅ Mission accomplie ! {inserted} lignes insérées dans 'knowledge_base'.")
+        return {
+            "inserted": inserted,
+            "chunks": len(chunks),
+            "url": source_url,
+            "category": category_value,
+            "urls_scraped": len(urls_to_scrape),
+            "truncated": MAX_KB_CHUNKS > 0 and original_chunk_count > MAX_KB_CHUNKS,
+        }
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     ingest_to_postgres()

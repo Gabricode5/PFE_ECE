@@ -88,7 +88,7 @@ CREATE TABLE knowledge_base (
     id SERIAL PRIMARY KEY,                                    -- Identifiant chunk/document
     source_message_id INTEGER REFERENCES chat_messages(id) ON DELETE SET NULL, -- Source optionnelle
     contenu TEXT NOT NULL,                                    -- Contenu textuel indexé
-    embedding vector(768),                                    -- Vecteur embedding (nomic 768)
+    embedding vector(1024),                                   -- Vecteur embedding (mistral-embed 1024)
     category VARCHAR(50),                                     -- Catégorie logique (ex: service-public)
     date_creation TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP -- Date d'insertion
 );
