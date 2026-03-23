@@ -159,7 +159,7 @@ export function AppSidebar() {
                     <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">
                         A
                     </div>
-                    <span>AI CRM</span>
+                    <span>SmartTicket</span>
                 </div>
             </div>
 
@@ -274,13 +274,12 @@ export function AppSidebar() {
                 </div>
                 )}
 
-                {/* 3. Outils IA */}
-                <div>
-                    <h3 className="px-4 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
-                        Outils IA
-                    </h3>
-                    <div className="space-y-1">
-                        {user.role === "admin" && (
+                {user.role === "admin" && (
+                    <div>
+                        <h3 className="px-4 text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider mb-2">
+                            Outils IA
+                        </h3>
+                        <div className="space-y-1">
                             <Button
                                 variant={isActive("/analytics") ? "secondary" : "ghost"}
                                 asChild
@@ -291,20 +290,9 @@ export function AppSidebar() {
                                     Analytique
                                 </Link>
                             </Button>
-                        )}
-
-                        <Button
-                            variant={isActive("/settings") ? "secondary" : "ghost"}
-                            asChild
-                            className={cn("w-full justify-start", isActive("/settings") && "bg-sidebar-accent")}
-                        >
-                            <Link href="/settings">
-                                <Settings className="mr-3 h-4 w-4" />
-                                Paramètres
-                            </Link>
-                        </Button>
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
 
             {/* User Footer */}

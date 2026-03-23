@@ -707,6 +707,9 @@ def create_message(message: schemas.ChatMessageCreate, current_user: str = Depen
     if not is_admin_or_sav(user) and session.id_utilisateur != user.id:
         raise HTTPException(status_code=404, detail="Session non trouvée")
 
+    if getattr(session, "status", "open") == "closed":
+        raise HTTPException(status_code=400, detail="Cette conversation est clôturée.")
+
     if message.type_envoyeur not in ["user", "ai", "sav"]:
         raise HTTPException(status_code=400, detail="Type d'envoyeur invalide")
 
@@ -796,6 +799,9 @@ def ask_question_stream(
 
     if not is_admin_or_sav(user) and session.id_utilisateur != user.id:
         raise HTTPException(status_code=404, detail="Session non trouvée")
+
+    if getattr(session, "status", "open") == "closed":
+        raise HTTPException(status_code=400, detail="Cette conversation est clôturée.")
 
     user_message = models.ChatMessage(
         id_session=session_id,

@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
     Search,
-    Bell,
     MessageSquare,
     Zap,
     Clock,
@@ -709,16 +708,27 @@ export default function DashboardPage() {
         return title.includes(userQuery.toLowerCase())
     })
 
+    const totalSessions = userSessions.length
+    const closedSessions = userSessions.filter((session) => session.status === "closed").length
+    const openSessions = totalSessions - closedSessions
+    const closureRate = totalSessions > 0 ? `${Math.round((closedSessions / totalSessions) * 100)}%` : "0%"
+    const lastSessionDate = userSessions
+        .map((session) => session.date_creation)
+        .filter((date): date is string => Boolean(date))
+        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0]
+    const lastActivityLabel = lastSessionDate
+        ? new Date(lastSessionDate).toLocaleDateString("fr-FR", {
+            day: "2-digit",
+            month: "short",
+        })
+        : "Aucune"
+
     return (
         <div className="flex flex-col min-h-full">
             {/* Header Bar */}
             <header className="flex items-center justify-between px-8 py-5 bg-background border-b sticky top-0 z-10">
                 <div className="flex items-center gap-4">
                     <h1 className="text-2xl font-bold tracking-tight">Tableau de bord</h1>
-                    <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100/80 border-0 gap-1 pl-1 pr-2">
-                        <span className="h-2 w-2 rounded-full bg-green-600 animate-pulse" />
-                        IA Active
-                    </Badge>
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -732,11 +742,6 @@ export default function DashboardPage() {
                             className="pl-9 bg-muted/20 border-muted-foreground/20 focus-visible:ring-offset-0 focus-visible:bg-background transition-colors"
                         />
                     </div>
-
-                    <Button variant="ghost" size="icon" className="relative">
-                        <Bell className="h-5 w-5" />
-                        <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive border-2 border-background" />
-                    </Button>
                 </div>
             </header>
 
@@ -756,7 +761,7 @@ export default function DashboardPage() {
                             <MessageSquare className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold">{userSessions.length}</div>
+                            <div className="text-2xl font-bold">{totalSessions}</div>
                             <p className="text-xs text-muted-foreground flex items-center mt-1">
                                 <TrendingUp className="h-3 w-3 text-green-500 mr-1" />
                                 <span className="text-green-500 font-medium">Activité personnelle</span>
@@ -764,44 +769,44 @@ export default function DashboardPage() {
                         </CardContent>
                     </Card>
 
-                    {/* Card 2: AI Resolution Rate */}
+                    {/* Card 2: Closure Rate */}
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium text-muted-foreground">Taux de résolution IA</CardTitle>
+                            <CardTitle className="text-sm font-medium text-muted-foreground">Sessions clôturées</CardTitle>
                             <Zap className="h-4 w-4 text-yellow-500" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold">—</div>
+                            <div className="text-2xl font-bold">{closureRate}</div>
                             <p className="text-xs text-muted-foreground flex items-center mt-1">
-                                <span className="text-muted-foreground">Statistiques globales masquées</span>
+                                <span className="text-muted-foreground">{closedSessions} conversation{closedSessions > 1 ? "s" : ""} terminée{closedSessions > 1 ? "s" : ""}</span>
                             </p>
                         </CardContent>
                     </Card>
 
-                    {/* Card 3: Average Response Time */}
+                    {/* Card 3: Open Sessions */}
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium text-muted-foreground">Temps de réponse moyen</CardTitle>
+                            <CardTitle className="text-sm font-medium text-muted-foreground">Conversations ouvertes</CardTitle>
                             <Clock className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold">—</div>
+                            <div className="text-2xl font-bold">{openSessions}</div>
                             <p className="text-xs text-muted-foreground flex items-center mt-1">
-                                <span className="text-muted-foreground">Données indisponibles</span>
+                                <span className="text-muted-foreground">Encore en attente de clôture</span>
                             </p>
                         </CardContent>
                     </Card>
 
-                    {/* Card 4: Customer Satisfaction */}
+                    {/* Card 4: Latest Activity */}
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium text-muted-foreground">Satisfaction Client</CardTitle>
+                            <CardTitle className="text-sm font-medium text-muted-foreground">Dernière activité</CardTitle>
                             <Star className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold">—</div>
+                            <div className="text-2xl font-bold">{lastActivityLabel}</div>
                             <p className="text-xs text-muted-foreground flex items-center mt-1">
-                                <span className="text-muted-foreground">Données indisponibles</span>
+                                <span className="text-muted-foreground">Basé sur la date de vos sessions</span>
                             </p>
                         </CardContent>
                     </Card>

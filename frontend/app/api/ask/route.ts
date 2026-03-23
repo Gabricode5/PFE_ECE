@@ -15,12 +15,7 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    const params = new URLSearchParams({
-        question,
-        session_id,
-        mode,
-    });
-    const backendUrl = `${API_URL.replace(/\/$/, "")}/ask?${params.toString()}`;
+    const backendUrl = `${API_URL.replace(/\/$/, "")}/ask/stream`;
 
     const cookie = request.headers.get("cookie") || "";
 
@@ -28,8 +23,14 @@ export async function POST(request: NextRequest) {
         const res = await fetch(backendUrl, {
             method: "POST",
             headers: {
+                "Content-Type": "application/json",
                 Cookie: cookie,
             },
+            body: JSON.stringify({
+                question,
+                session_id: Number(session_id),
+                mode,
+            }),
             cache: "no-store",
         });
 

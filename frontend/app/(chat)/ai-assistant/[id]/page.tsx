@@ -77,6 +77,7 @@ export default function AiAssistantPage() {
     const [error, setError] = useState<string | null>(null)
     const [aiEnabled, setAiEnabled] = useState(true)
     const [username, setUsername] = useState("Utilisateur")
+    const [isClosed, setIsClosed] = useState(false)
     const bottomRef = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
@@ -120,12 +121,40 @@ export default function AiAssistantPage() {
         loadMessages()
     }, [sessionIdNumber])
 
+    useEffect(() => {
+        async function loadSessionStatus() {
+            if (!Number.isFinite(sessionIdNumber)) return
+
+            const userId = localStorage.getItem("user_id")
+            if (!userId) return
+
+            try {
+                const response = await fetch(`/api/sessions?user_id=${userId}`)
+                if (!response.ok) return
+
+                const data = await response.json()
+                if (!Array.isArray(data)) return
+
+                const currentSession = data.find((item: { id?: number; status?: string | null }) => item.id === sessionIdNumber)
+                setIsClosed(currentSession?.status === "closed")
+            } catch (err) {
+                console.error("Erreur chargement session :", err)
+            }
+        }
+
+        loadSessionStatus()
+    }, [sessionIdNumber])
+
     const handleSend = async (event?: React.FormEvent, customPrompt?: string) => {
         event?.preventDefault()
         setError(null)
 
         const trimmed = (customPrompt ?? input).trim()
         if (!trimmed || isSending) return
+        if (isClosed) {
+            setError("Cette conversation est clôturée. Vous ne pouvez plus envoyer de message.")
+            return
+        }
 
         const userMessage: ChatMessage = {
             id: makeId(),
@@ -156,13 +185,19 @@ export default function AiAssistantPage() {
                 })
                 if (!response.ok) {
                     if (response.status === 401) {
+                        setMessages(prev => prev.filter((message) => message.id !== userMessage.id))
                         setError("Session expirée. Veuillez vous reconnecter.")
                         return
                     }
                     const data = await response.json()
+                    setMessages(prev => prev.filter((message) => message.id !== userMessage.id))
+                    if (response.status === 400 && data?.detail === "Cette conversation est clôturée.") {
+                        setIsClosed(true)
+                    }
                     setError(data?.detail || "Erreur lors de l'enregistrement du message.")
                 }
             } catch {
+                setMessages(prev => prev.filter((message) => message.id !== userMessage.id))
                 setError("Impossible de contacter le serveur.")
             }
             return
@@ -190,7 +225,12 @@ export default function AiAssistantPage() {
             )
 
             if (!response.ok || !response.body) {
-                setError("Erreur de l'assistant IA.")
+                const data = await response.json().catch(() => null)
+                setMessages(prev => prev.filter((message) => message.id !== userMessage.id && message.id !== streamId))
+                if (response.status === 400 && data?.detail === "Cette conversation est clôturée.") {
+                    setIsClosed(true)
+                }
+                setError(data?.detail || "Erreur de l'assistant IA.")
                 setIsSending(false)
                 return
             }
@@ -208,6 +248,7 @@ export default function AiAssistantPage() {
                 )
             }
         } catch {
+            setMessages(prev => prev.filter((message) => message.id !== userMessage.id && message.id !== streamId))
             setError("Erreur de connexion au serveur.")
         } finally {
             setIsSending(false)
@@ -224,7 +265,8 @@ export default function AiAssistantPage() {
                     <div>
                         <h2 className="font-bold text-sm text-slate-800">{username} <span className="text-slate-400 font-normal ml-1">#S{sessionId}</span></h2>
                         <p className="text-[11px] text-green-600 font-medium flex items-center gap-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span> Assistant IA Actif
+                            <span className={`h-1.5 w-1.5 rounded-full ${isClosed ? "bg-slate-400" : "bg-green-500 animate-pulse"}`}></span>
+                            {isClosed ? "Conversation clôturée" : "Assistant IA Actif"}
                         </p>
                     </div>
                 </div>
@@ -246,7 +288,15 @@ export default function AiAssistantPage() {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full px-4">
                             {SUGGESTIONS.map((s, i) => (
-                                <Card key={i} onClick={() => handleSend(undefined, s.prompt)} className="p-4 border-2 border-slate-100 hover:border-indigo-500 hover:shadow-lg transition-all cursor-pointer group bg-white">
+                                <Card
+                                    key={i}
+                                    onClick={() => {
+                                        if (!isClosed) {
+                                            void handleSend(undefined, s.prompt)
+                                        }
+                                    }}
+                                    className={`p-4 border-2 transition-all group bg-white ${isClosed ? "border-slate-100 opacity-50 cursor-not-allowed" : "border-slate-100 hover:border-indigo-500 hover:shadow-lg cursor-pointer"}`}
+                                >
                                     <div className="flex items-start gap-4">
                                         <div className="p-3 rounded-xl bg-slate-50 group-hover:bg-indigo-50 transition-colors">{s.icon}</div>
                                         <div>
@@ -293,22 +343,24 @@ export default function AiAssistantPage() {
                 <div className="max-w-4xl mx-auto space-y-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
-                            <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} className="data-[state=checked]:bg-indigo-600" />
+                            <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} disabled={isClosed} className="data-[state=checked]:bg-indigo-600" />
                             <span className="text-[11px] font-bold text-slate-500 uppercase">IA Active</span>
                         </div>
                         <Badge variant="outline" className="text-indigo-600 border-indigo-100 gap-1 text-[10px] py-1">
                             <Sparkles className="h-3 w-3" /> Chiffrement actif
                         </Badge>
                     </div>
+                    {error ? <p className="text-sm text-red-600">{error}</p> : null}
                     <form onSubmit={handleSend} className="relative group">
                         <Input
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            placeholder="Posez votre question à l'assistant..."
+                            disabled={isClosed || isSending}
+                            placeholder={isClosed ? "Cette conversation est clôturée." : "Posez votre question à l'assistant..."}
                             className="h-14 pl-6 pr-24 rounded-2xl border-2 border-slate-100 focus-visible:ring-indigo-500 bg-slate-50/30 transition-all text-base"
                         />
                         <div className="absolute right-2 top-2 flex items-center gap-1">
-                            <Button type="submit" disabled={isSending || !input.trim()} size="sm" className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all">
+                            <Button type="submit" disabled={isClosed || isSending || !input.trim()} size="sm" className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all">
                                 <Send className="h-4 w-4 mr-2" /> {isSending ? "Calcul..." : "Analyser"}
                             </Button>
                         </div>
