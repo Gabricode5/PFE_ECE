@@ -53,4 +53,5 @@ class KnowledgeBase(Base):
     contenu = Column(Text, nullable=False)
     embedding = Column(Vector(1024), nullable=False)
     category = Column(String(50), nullable=True)
+    source = Column(String(500), nullable=True)
     date_creation = Column(DateTime(timezone=True), server_default=func.now())

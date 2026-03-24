@@ -3,10 +3,9 @@
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import {
     Dialog,
     DialogContent,
@@ -17,6 +16,16 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog"
 import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
     Select,
     SelectContent,
     SelectItem,
@@ -24,26 +33,15 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import {
-    Tabs,
-    TabsContent,
-    TabsList,
-    TabsTrigger,
-} from "@/components/ui/tabs"
-import {
     Search,
     Plus,
     FileText,
-    Eye,
-    Star,
-    Edit2,
-    Trash2,
-    Book,
-    Video,
-    HelpCircle,
-    Lightbulb,
-    Cpu,
     Upload,
-    Loader2
+    Loader2,
+    Globe,
+    DatabaseZap,
+    Cpu,
+    Trash2,
 } from "lucide-react"
 
 export default function KnowledgeBasePage() {
@@ -51,11 +49,9 @@ export default function KnowledgeBasePage() {
     const INGEST_POLL_SLOW_MS = 15000
     const INGEST_POLL_SLOW_AFTER_MS = 60000
 
-    const [articles, setArticles] = useState(INITIAL_ARTICLES)
     const [searchQuery, setSearchQuery] = useState("")
     const [activeFilter, setActiveFilter] = useState("Tout")
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-    const [activeTab, setActiveTab] = useState("write")
     const [newArticle, setNewArticle] = useState({
         title: "",
         category: "Guides",
@@ -63,6 +59,9 @@ export default function KnowledgeBasePage() {
         tags: "",
         fileName: ""
     })
+    const [selectedFile, setSelectedFile] = useState<File | null>(null)
+    const [isUploadingFile, setIsUploadingFile] = useState(false)
+    const [uploadError, setUploadError] = useState<string | null>(null)
     const [sourceUrl, setSourceUrl] = useState("https://www.service-public.fr/particuliers/vosdroits/F1342")
     const [isIngesting, setIsIngesting] = useState(false)
     const [ingestMessage, setIngestMessage] = useState<string | null>(null)
@@ -70,6 +69,36 @@ export default function KnowledgeBasePage() {
     const [ingestJobId, setIngestJobId] = useState<string | null>(null)
     const ingestPollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const ingestStartedAtRef = useRef<number | null>(null)
+    const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+    type KBSource = { source: string; category: string | null; chunks: number; date_creation: string | null }
+    const [kbSources, setKbSources] = useState<KBSource[]>([])
+    const [deleteSource, setDeleteSource] = useState<KBSource | null>(null)
+    const [isDeleting, setIsDeleting] = useState(false)
+
+    const handleDeleteConfirm = async () => {
+        if (!deleteSource) return
+        setIsDeleting(true)
+        try {
+            await fetch(`/api/knowledge-base/sources?source=${encodeURIComponent(deleteSource.source)}`, {
+                method: "DELETE",
+                credentials: "include",
+            })
+            setDeleteSource(null)
+            await loadSources()
+        } finally {
+            setIsDeleting(false)
+        }
+    }
+
+    const loadSources = async () => {
+        try {
+            const res = await fetch("/api/knowledge-base/sources", { credentials: "include" })
+            if (res.ok) setKbSources(await res.json())
+        } catch { /* silent */ }
+    }
+
+    useEffect(() => { loadSources() }, [])
 
     useEffect(() => {
         if (!ingestJobId) return
@@ -98,19 +127,22 @@ export default function KnowledgeBasePage() {
                 const data = await response.json()
                 if (data.status === "completed") {
                     setIsIngesting(false)
+                    setIsUploadingFile(false)
                     setIngestJobId(null)
                     ingestStartedAtRef.current = null
                     if (data.result?.inserted === 0) {
                         setIngestError("Aucun contenu récupéré. Le site bloque peut-être le scraping ou utilise du contenu dynamique.")
                     } else {
                         const inserted = data.result?.inserted ?? "?"
-                        const url = data.result?.url ?? sourceUrl
-                        setIngestMessage(`Indexation terminée : ${inserted} contenus indexés depuis ${url}`)
+                        const source = data.result?.filename ?? data.result?.url ?? sourceUrl
+                        setIngestMessage(`Indexation terminée : ${inserted} contenus indexés depuis ${source}`)
+                        loadSources()
                     }
                     return
                 }
                 if (data.status === "failed") {
                     setIsIngesting(false)
+                    setIsUploadingFile(false)
                     setIngestJobId(null)
                     ingestStartedAtRef.current = null
                     setIngestError(data.error || "Erreur pendant l'indexation.")
@@ -192,42 +224,73 @@ export default function KnowledgeBasePage() {
         }
     }
 
-    const handleAddArticle = () => {
-        let summaryText = newArticle.summary
-        if (activeTab === "upload" && newArticle.fileName) {
-            summaryText = `Document importé : ${newArticle.fileName}`
+    const handleAddArticle = async () => {
+        setUploadError(null)
+
+        if (!selectedFile) {
+            setUploadError("Veuillez sélectionner un fichier .pdf, .docx ou .txt.")
+            return
+        }
+        const ext = selectedFile.name.split(".").pop()?.toLowerCase()
+        if (ext !== "docx" && ext !== "txt" && ext !== "pdf") {
+            setUploadError("Seuls les fichiers .pdf, .docx et .txt sont acceptés.")
+            return
         }
 
-        const article = {
-            title: newArticle.title,
-            summary: summaryText,
-            icon: activeTab === "upload" ? <FileText className="h-5 w-5" /> : getIconForCategory(newArticle.category),
-            tags: newArticle.tags.split(",").map(t => t.trim()).filter(Boolean),
-            views: "0",
-            rating: "0",
-            date: "À l'instant",
-            category: newArticle.category
+        const formData = new FormData()
+        formData.append("file", selectedFile)
+        if (newArticle.category) formData.append("category", newArticle.category)
+
+        setIsUploadingFile(true)
+        setIngestMessage(null)
+        setIngestError(null)
+
+        try {
+            const response = await fetch("/api/knowledge-base/ingest-file", {
+                method: "POST",
+                credentials: "include",
+                body: formData,
+            })
+            const data = await response.json()
+            if (!response.ok) {
+                setUploadError(data?.detail || "Erreur lors de l'envoi du fichier.")
+                setIsUploadingFile(false)
+                return
+            }
+            if (data.status === "started") {
+                setIngestMessage(data.message || "Indexation du fichier lancée.")
+                ingestStartedAtRef.current = Date.now()
+                setIngestJobId(data.job_id || null)
+                setIsAddDialogOpen(false)
+                setNewArticle({ title: "", category: "Guides", summary: "", tags: "", fileName: "" })
+                setSelectedFile(null)
+            }
+        } catch {
+            setUploadError("Erreur réseau lors de l'envoi du fichier.")
+            setIsUploadingFile(false)
         }
-        setArticles([article, ...articles])
-        setIsAddDialogOpen(false)
-        setNewArticle({ title: "", category: "Guides", summary: "", tags: "", fileName: "" })
-        setActiveTab("write")
     }
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
-            setNewArticle({ ...newArticle, fileName: e.target.files[0].name })
+            const file = e.target.files[0]
+            setSelectedFile(file)
+            setNewArticle({ ...newArticle, fileName: file.name })
+            setUploadError(null)
         }
     }
 
-    const filteredArticles = articles.filter(article => {
-        const matchesSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            article.summary.toLowerCase().includes(searchQuery.toLowerCase())
-        const matchesFilter = activeFilter === "Tout" || article.category === activeFilter
+    const uniqueCategories = Array.from(new Set(kbSources.map(s => s.category).filter(Boolean))) as string[]
+
+    const filteredSources = kbSources.filter(s => {
+        const matchesSearch = s.source.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (s.category ?? "").toLowerCase().includes(searchQuery.toLowerCase())
+        const matchesFilter = activeFilter === "Tout" || s.category === activeFilter
         return matchesSearch && matchesFilter
     })
 
     return (
+        <>
         <div className="flex flex-col min-h-full">
             {/* Header & Search */}
             <div className="p-8 pb-4 space-y-6 bg-background border-b">
@@ -271,7 +334,6 @@ export default function KnowledgeBasePage() {
                                             <SelectItem value="FAQ">FAQ</SelectItem>
                                             <SelectItem value="Guides">Guides</SelectItem>
                                             <SelectItem value="Documentation">Documentation</SelectItem>
-                                            <SelectItem value="Vidéos">Vidéos</SelectItem>
                                             <SelectItem value="Formés IA">Formés IA</SelectItem>
                                         </SelectContent>
                                     </Select>
@@ -286,49 +348,36 @@ export default function KnowledgeBasePage() {
                                     />
                                 </div>
 
-                                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                                    <TabsList className="grid w-full grid-cols-2">
-                                        <TabsTrigger value="write">Rédiger</TabsTrigger>
-                                        <TabsTrigger value="upload">Importer</TabsTrigger>
-                                    </TabsList>
-                                    <TabsContent value="write" className="space-y-2 mt-4">
-                                        <Label htmlFor="summary">Contenu / Résumé</Label>
-                                        <Textarea
-                                            id="summary"
-                                            value={newArticle.summary}
-                                            onChange={(e) => setNewArticle({ ...newArticle, summary: e.target.value })}
-                                            placeholder="Écrivez le contenu de votre article ici..."
-                                            className="min-h-[150px]"
-                                        />
-                                    </TabsContent>
-                                    <TabsContent value="upload" className="space-y-4 mt-4">
-                                        <div className="border-2 border-dashed border-muted-foreground/25 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:bg-muted/30 transition-colors cursor-pointer"
-                                            onClick={() => document.getElementById('file-upload')?.click()}
-                                        >
-                                            <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                                                <Upload className="h-6 w-6 text-primary" />
-                                            </div>
-                                            <p className="text-sm font-medium">
-                                                {newArticle.fileName ? newArticle.fileName : "Cliquez pour importer un fichier"}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                PDF, DOCX, ou TXT jusqu'à 10MB
-                                            </p>
-                                            <Input
-                                                id="file-upload"
-                                                type="file"
-                                                className="hidden"
-                                                onChange={handleFileChange}
-                                                accept=".pdf,.doc,.docx,.txt"
-                                            />
+                                <div className="space-y-4">
+                                    <div
+                                        className="border-2 border-dashed border-muted-foreground/25 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:bg-muted/30 transition-colors cursor-pointer"
+                                        onClick={() => fileInputRef.current?.click()}
+                                    >
+                                        <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                                            <Upload className="h-6 w-6 text-primary" />
                                         </div>
-                                    </TabsContent>
-                                </Tabs>
+                                        <p className="text-sm font-medium">
+                                            {newArticle.fileName ? newArticle.fileName : "Cliquez pour importer un fichier"}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            PDF, DOCX ou TXT jusqu&apos;à 10MB
+                                        </p>
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            className="hidden"
+                                            onChange={handleFileChange}
+                                            accept=".pdf,.docx,.txt"
+                                        />
+                                    </div>
+                                    {uploadError && <p className="text-sm text-red-600">{uploadError}</p>}
+                                </div>
                             </div>
 
                             <DialogFooter>
-                                <Button onClick={handleAddArticle}>
-                                    {activeTab === "upload" ? "Importer et Créer" : "Publier l'article"}
+                                <Button onClick={handleAddArticle} disabled={isUploadingFile || !selectedFile}>
+                                    {isUploadingFile && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    {isUploadingFile ? "Envoi..." : "Importer et indexer"}
                                 </Button>
                             </DialogFooter>
                         </DialogContent>
@@ -366,48 +415,104 @@ export default function KnowledgeBasePage() {
                 {/* Filter Bar */}
                 <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
                     <FilterChip label="Tout" active={activeFilter === "Tout"} onClick={() => setActiveFilter("Tout")} />
-                    <FilterChip label="FAQ" icon={<HelpCircle className="h-3.5 w-3.5" />} active={activeFilter === "FAQ"} onClick={() => setActiveFilter("FAQ")} />
-                    <FilterChip label="Guides" icon={<Book className="h-3.5 w-3.5" />} active={activeFilter === "Guides"} onClick={() => setActiveFilter("Guides")} />
-                    <FilterChip label="Documentation" icon={<FileText className="h-3.5 w-3.5" />} active={activeFilter === "Documentation"} onClick={() => setActiveFilter("Documentation")} />
-                    <FilterChip label="Vidéos" icon={<Video className="h-3.5 w-3.5" />} active={activeFilter === "Vidéos"} onClick={() => setActiveFilter("Vidéos")} />
-                    <FilterChip label="Formés IA" icon={<Cpu className="h-3.5 w-3.5" />} active={activeFilter === "Formés IA"} onClick={() => setActiveFilter("Formés IA")} />
+                    {uniqueCategories.map(cat => (
+                        <FilterChip key={cat} label={cat} active={activeFilter === cat} onClick={() => setActiveFilter(cat)} />
+                    ))}
                 </div>
             </div>
 
             <div className="p-8 space-y-8 max-w-7xl mx-auto w-full">
 
                 {/* Metrics Summary Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <MetricCard
+                        icon={<DatabaseZap className="h-6 w-6 text-purple-500" />}
+                        value={`${kbSources.length}`}
+                        label="Sources indexées"
+                    />
+                    <MetricCard
+                        icon={<Cpu className="h-6 w-6 text-indigo-500" />}
+                        value={`${kbSources.reduce((s, r) => s + r.chunks, 0)}`}
+                        label="Chunks IA"
+                    />
                     <MetricCard
                         icon={<FileText className="h-6 w-6 text-blue-500" />}
-                        value={`${articles.length}`}
-                        label="Articles Totaux"
-                    />
-                    <MetricCard
-                        icon={<Cpu className="h-6 w-6 text-purple-500" />}
-                        value="128"
-                        label="Indexés IA"
-                    />
-                    <MetricCard
-                        icon={<Eye className="h-6 w-6 text-green-500" />}
-                        value="45.2k"
-                        label="Vues ce mois"
-                    />
-                    <MetricCard
-                        icon={<Star className="h-6 w-6 text-yellow-500" />}
-                        value="4.7/5"
-                        label="Note moyenne"
+                        value={`${uniqueCategories.length}`}
+                        label="Catégories"
                     />
                 </div>
 
-                {/* Article Content Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {filteredArticles.map((article, index) => (
-                        <ArticleCard key={index} article={article} />
-                    ))}
-                </div>
+                {/* Sources Grid */}
+                {filteredSources.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground">
+                        <DatabaseZap className="h-12 w-12 mb-4 opacity-30" />
+                        <p className="text-base font-medium">Aucune source indexée</p>
+                        <p className="text-sm mt-1">Utilisez le bouton &quot;Ajouter une source&quot; pour indexer une URL ou un fichier.</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filteredSources.map((s, i) => {
+                            const isFile = !s.source.startsWith("http")
+                            const ext = s.source.split(".").pop()?.toLowerCase() ?? ""
+                            return (
+                                <Card key={i} className="hover:shadow-md transition-shadow group">
+                                    <CardContent className="p-4 flex items-start gap-3">
+                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${isFile ? "bg-indigo-50" : "bg-blue-50"}`}>
+                                            {isFile
+                                                ? <FileText className={`h-5 w-5 ${ext === "pdf" ? "text-red-500" : ext === "docx" ? "text-blue-600" : "text-slate-500"}`} />
+                                                : <Globe className="h-5 w-5 text-blue-500" />
+                                            }
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-sm font-semibold text-slate-800 truncate" title={s.source}>{s.source}</p>
+                                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                                {s.category && <Badge variant="secondary" className="text-xs">{s.category}</Badge>}
+                                                <span className="text-xs text-muted-foreground">{s.chunks} chunks</span>
+                                                {s.date_creation && (
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {new Date(s.date_creation).toLocaleDateString("fr-FR")}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive flex-shrink-0"
+                                            onClick={() => setDeleteSource(s)}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </CardContent>
+                                </Card>
+                            )
+                        })}
+                    </div>
+                )}
             </div>
         </div>
+        <AlertDialog open={!!deleteSource} onOpenChange={(open) => { if (!open) setDeleteSource(null) }}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Supprimer cette source ?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Tous les chunks indexés depuis <span className="font-medium text-foreground">{deleteSource?.source}</span> seront supprimés définitivement de la base de connaissances IA. Cette action est irréversible.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeleting}>Annuler</AlertDialogCancel>
+                    <AlertDialogAction
+                        onClick={handleDeleteConfirm}
+                        disabled={isDeleting}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                        {isDeleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Supprimer
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+        </>
     )
 }
 
@@ -441,110 +546,3 @@ function MetricCard({ icon, value, label }: { icon: React.ReactNode, value: stri
     )
 }
 
-function ArticleCard({ article }: { article: any }) {
-    return (
-        <Card className="hover:shadow-md transition-shadow cursor-pointer group">
-            <CardHeader className="space-y-3 pb-3">
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-primary/5 text-primary flex items-center justify-center shrink-0">
-                            {article.icon}
-                        </div>
-                        <div>
-                            <CardTitle className="text-lg leading-tight group-hover:text-primary transition-colors">
-                                {article.title}
-                            </CardTitle>
-                            <div className="flex gap-2 mt-2">
-                                {article.tags.map((tag: string) => (
-                                    <Badge key={tag} variant="secondary" className="font-normal text-xs bg-muted/50 text-muted-foreground">
-                                        {tag}
-                                    </Badge>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent className="pb-3">
-                <p className="text-sm text-muted-foreground line-clamp-2">
-                    {article.summary}
-                </p>
-            </CardContent>
-            <CardFooter className="pt-3 border-t bg-muted/5 flex items-center justify-between text-xs text-muted-foreground">
-                <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1">
-                        <Eye className="h-3.5 w-3.5" />
-                        {article.views}
-                    </div>
-                    <div className="flex items-center gap-1">
-                        <Star className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500/20" />
-                        {article.rating}
-                    </div>
-                    <span>{article.date}</span>
-                </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground">
-                        <Edit2 className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
-                        <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                </div>
-            </CardFooter>
-        </Card>
-    )
-}
-
-function getIconForCategory(category: string) {
-    switch (category) {
-        case "FAQ": return <HelpCircle className="h-5 w-5" />
-        case "Guides": return <Book className="h-5 w-5" />
-        case "Documentation": return <FileText className="h-5 w-5" />
-        case "Vidéos": return <Video className="h-5 w-5" />
-        case "Formés IA": return <Cpu className="h-5 w-5" />
-        default: return <FileText className="h-5 w-5" />
-    }
-}
-
-const INITIAL_ARTICLES = [
-    {
-        title: "Comment réinitialiser votre mot de passe ?",
-        summary: "Guide étape par étape pour réinitialiser votre mot de passe en toute sécurité via le portail client ou l'application mobile.",
-        icon: <Lightbulb className="h-5 w-5" />,
-        tags: ["Compte", "Sécurité"],
-        views: "2.4k",
-        rating: "4.8",
-        date: "Il y a 2 jours",
-        category: "FAQ"
-    },
-    {
-        title: "Comprendre votre facture mensuelle",
-        summary: "Explication détaillée des différents frais et taxes qui peuvent apparaître sur votre facture de fin de mois.",
-        icon: <FileText className="h-5 w-5" />,
-        tags: ["Facturation", "Finance"],
-        views: "1.8k",
-        rating: "4.5",
-        date: "Il y a 1 semaine",
-        category: "Guides"
-    },
-    {
-        title: "Intégration de l'API REST",
-        summary: "Documentation technique pour les développeurs souhaitant intégrer notre solution via l'API REST.",
-        icon: <Cpu className="h-5 w-5" />,
-        tags: ["API", "Développeurs"],
-        views: "956",
-        rating: "4.9",
-        date: "Il y a 3 semaines",
-        category: "Documentation"
-    },
-    {
-        title: "Tutoriel vidéo : Configuration initiale",
-        summary: "Regardez cette vidéo de 5 minutes pour apprendre à configurer votre compte pour la première fois.",
-        icon: <Video className="h-5 w-5" />,
-        tags: ["Tutoriel", "Onboarding"],
-        views: "5.1k",
-        rating: "4.7",
-        date: "Il y a 1 mois",
-        category: "Vidéos"
-    }
-]

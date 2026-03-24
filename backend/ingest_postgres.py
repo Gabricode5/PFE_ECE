@@ -8,6 +8,9 @@ import xml.etree.ElementTree as ET
 from urllib.parse import urlparse, urljoin
 
 from mistral_client import embed_texts
+import logging
+
+logger = logging.getLogger("ingest_postgres")
 
 # On charge les variables du .env avant d'importer la base
 load_dotenv()
@@ -253,6 +256,7 @@ def ingest_to_postgres(url: str | None = None, category: str | None = None):
                     contenu=text,
                     embedding=vector,
                     category=category_value,
+                    source=source_url,
                 )
                 db.add(row)
                 inserted += 1
@@ -272,6 +276,71 @@ def ingest_to_postgres(url: str | None = None, category: str | None = None):
         raise
     finally:
         db.close()
+
+def ingest_file_to_postgres(file_bytes: bytes, filename: str, category: str | None = None):
+    import io
+    category_value = (category or DEFAULT_CATEGORY).strip() or DEFAULT_CATEGORY
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    logger.info("ingest_file_to_postgres: file=%s ext=%s size=%d category=%s", filename, ext, len(file_bytes), category_value)
+
+    if ext == "txt":
+        try:
+            raw_text = file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            raw_text = file_bytes.decode("latin-1")
+    elif ext == "docx":
+        from docx import Document as DocxDocument
+        doc = DocxDocument(io.BytesIO(file_bytes))
+        raw_text = "\n".join(para.text for para in doc.paragraphs if para.text.strip())
+    elif ext == "pdf":
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(file_bytes))
+        raw_text = "\n".join(
+            page.extract_text() or "" for page in reader.pages
+        )
+    else:
+        raise ValueError(f"Type de fichier non supporté : .{ext}")
+
+    raw_text = _sanitize_text(raw_text)
+    logger.info("raw text length: %d chars", len(raw_text))
+    if len(raw_text) < MIN_TEXT_LENGTH:
+        raise ValueError("Le fichier est vide ou trop court pour être indexé.")
+
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    chunks = text_splitter.split_text(raw_text)
+    chunks = [_sanitize_text(c) for c in chunks]
+    chunks = [c for c in chunks if len(c) >= MIN_TEXT_LENGTH and not _looks_like_binary_text(c)]
+    if MAX_KB_CHUNKS > 0:
+        chunks = chunks[:MAX_KB_CHUNKS]
+    logger.info("chunks after filtering: %d", len(chunks))
+    if not chunks:
+        raise ValueError("Aucun contenu valide extrait du fichier.")
+
+    db = SessionLocal()
+    inserted = 0
+    try:
+        for start in range(0, len(chunks), EMBED_BATCH_SIZE):
+            batch_texts = chunks[start:start + EMBED_BATCH_SIZE]
+            batch_vectors = embed_texts(batch_texts, model=EMBED_MODEL, timeout=REQUEST_TIMEOUT)
+            for text, vector in zip(batch_texts, batch_vectors, strict=True):
+                row = models.KnowledgeBase(
+                    source_message_id=None,
+                    contenu=text,
+                    embedding=vector,
+                    category=category_value,
+                    source=filename,
+                )
+                db.add(row)
+                inserted += 1
+        db.commit()
+        logger.info("✅ %d rows inserted from file '%s'", inserted, filename)
+        return {"inserted": inserted, "filename": filename}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
 
 if __name__ == "__main__":
     ingest_to_postgres()

@@ -95,10 +95,25 @@ def ensure_knowledge_base_embedding_dim() -> None:
                 "All previous knowledge-base rows were cleared — please re-ingest your sources.")
 
 
+def ensure_knowledge_base_source_column() -> None:
+    inspector = inspect(engine)
+    if "knowledge_base" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("knowledge_base")}
+    if "source" in columns:
+        logger.info("Column 'knowledge_base.source' already exists. Nothing to do.")
+        return
+    logger.info("Adding column 'knowledge_base.source'...")
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS source VARCHAR(500);"))
+    logger.info("Column 'knowledge_base.source' added.")
+
+
 def main() -> None:
     logger.info("Starting custom DB migration based on SQLAlchemy models...")
     ensure_chat_sessions_status_column()
     ensure_knowledge_base_embedding_dim()
+    ensure_knowledge_base_source_column()
     logger.info("Migration finished.")
 
 
