@@ -58,7 +58,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # CONFIGURATION
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))
-KB_TOP_K = int(os.getenv("KB_TOP_K", "4"))
+KB_TOP_K = int(os.getenv("KB_TOP_K", "10"))
 KB_MAX_CONTEXT_CHARS = int(os.getenv("KB_MAX_CONTEXT_CHARS", "3000"))
 SUMMARY_MAX_CHARS = int(os.getenv("SUMMARY_MAX_CHARS", "4000"))
 SUMMARY_MAX_MESSAGES = int(os.getenv("SUMMARY_MAX_MESSAGES", "50"))
