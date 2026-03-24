@@ -834,6 +834,7 @@ def ask_question_stream(
             context = context[:KB_MAX_CONTEXT_CHARS]
     except Exception as e:
         print(f"DEBUG: RAG context error -> {e}")
+        db.rollback()
 
     prompt = build_rag_prompt(question, context)
 

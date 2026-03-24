@@ -5,6 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
     Search,
     MessageSquare,
@@ -15,7 +19,18 @@ import {
     Bot,
     Users,
     Shield,
-    MessageCircle
+    MessageCircle,
+    UserCheck,
+    UserX,
+    Pencil,
+    Trash2,
+    ChevronRight,
+    Send,
+    UserCog,
+    Crown,
+    Headphones,
+    CircleDot,
+    CheckCircle2
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
@@ -71,6 +86,11 @@ export default function DashboardPage() {
     const [userError, setUserError] = useState<string | null>(null)
     const [currentUserId, setCurrentUserId] = useState<number | null>(null)
     const [closingSessionId, setClosingSessionId] = useState<number | null>(null)
+    const [editDialogOpen, setEditDialogOpen] = useState(false)
+    const [editingUser, setEditingUser] = useState<UserItem | null>(null)
+    const [editForm, setEditForm] = useState({ username: "", email: "", prenom: "", nom: "", role: "" })
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+    const [deletingUser, setDeletingUser] = useState<UserItem | null>(null)
 
     useEffect(() => {
         const storedRole = localStorage.getItem("user_role") || "user"
@@ -193,33 +213,33 @@ export default function DashboardPage() {
         }
     }
 
-    const handleEditUser = async (userItem: UserItem) => {
-        setAdminError(null)
-        const username = window.prompt("Nom d'utilisateur", userItem.username)
-        if (username === null) return
-        const email = window.prompt("Email", userItem.email)
-        if (email === null) return
-        const prenom = window.prompt("Prénom (optionnel)", userItem.prenom || "")
-        if (prenom === null) return
-        const nom = window.prompt("Nom (optionnel)", userItem.nom || "")
-        if (nom === null) return
-        const roleInput = window.prompt("Rôle (user | sav | admin)", userItem.role)
-        if (roleInput === null) return
+    const handleEditUser = (userItem: UserItem) => {
+        setEditingUser(userItem)
+        setEditForm({
+            username: userItem.username,
+            email: userItem.email,
+            prenom: userItem.prenom || "",
+            nom: userItem.nom || "",
+            role: userItem.role,
+        })
+        setEditDialogOpen(true)
+    }
 
-        setUpdatingUserId(userItem.id)
+    const handleEditSubmit = async () => {
+        if (!editingUser) return
+        setAdminError(null)
+        setUpdatingUserId(editingUser.id)
         try {
-            const response = await fetch(`/api/users/${userItem.id}`, {
+            const response = await fetch(`/api/users/${editingUser.id}`, {
                 method: "PUT",
-                headers: {
-                    "Content-Type": "application/json"
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    username: username.trim(),
-                    email: email.trim().toLowerCase(),
-                    prenom: prenom.trim(),
-                    nom: nom.trim(),
-                    role: roleInput.trim().toLowerCase()
-                })
+                    username: editForm.username.trim(),
+                    email: editForm.email.trim().toLowerCase(),
+                    prenom: editForm.prenom.trim(),
+                    nom: editForm.nom.trim(),
+                    role: editForm.role.trim().toLowerCase(),
+                }),
             })
 
             const data = await response.json()
@@ -232,9 +252,10 @@ export default function DashboardPage() {
                 return
             }
 
-            if (selectedUser?.id === userItem.id) {
+            if (selectedUser?.id === editingUser.id) {
                 setSelectedUser(data)
             }
+            setEditDialogOpen(false)
             await loadAdminData()
         } catch (error) {
             console.error("Erreur update user :", error)
@@ -244,11 +265,16 @@ export default function DashboardPage() {
         }
     }
 
-    const handleDeleteUser = async (userItem: UserItem) => {
-        setAdminError(null)
-        const confirmed = window.confirm(`Supprimer le compte ${userItem.username} ?`)
-        if (!confirmed) return
+    const handleDeleteUser = (userItem: UserItem) => {
+        setDeletingUser(userItem)
+        setDeleteDialogOpen(true)
+    }
 
+    const handleDeleteConfirm = async () => {
+        if (!deletingUser) return
+        const userItem = deletingUser
+        setDeleteDialogOpen(false)
+        setAdminError(null)
         setUpdatingUserId(userItem.id)
         try {
             const response = await fetch(`/api/users/${userItem.id}`, {
@@ -418,246 +444,322 @@ export default function DashboardPage() {
 
     if (role === "admin") {
         return (
-            <div className="flex flex-col min-h-full">
-                <header className="flex items-center justify-between px-8 py-5 bg-background border-b sticky top-0 z-10">
-                    <div className="flex items-center gap-4">
-                        <h1 className="text-2xl font-bold tracking-tight">Espace Admin</h1>
-                        <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100/80 border-0 gap-1 pl-1 pr-2">
+            <>
+            <div className="flex flex-col min-h-full bg-slate-50/50">
+                {/* Header */}
+                <header className="flex items-center justify-between px-8 py-5 bg-white border-b sticky top-0 z-10 shadow-sm">
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-600 shadow-sm">
+                            <UserCog className="h-5 w-5 text-white" />
+                        </div>
+                        <div>
+                            <h1 className="text-xl font-bold tracking-tight text-slate-900">Espace Admin</h1>
+                            <p className="text-xs text-slate-500">Gestion des utilisateurs &amp; conversations</p>
+                        </div>
+                        <Badge className="bg-indigo-50 text-indigo-700 hover:bg-indigo-50 border border-indigo-200 gap-1 ml-2">
                             <Shield className="h-3 w-3" />
-                            Admin
+                            Administrateur
                         </Badge>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm text-slate-500">
+                        <div className="flex items-center gap-1.5 bg-white border rounded-lg px-3 py-1.5 shadow-sm">
+                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            <span className="font-medium text-slate-700">{users.length + savUsers.length + adminUsers.length}</span>
+                            <span>utilisateurs</span>
+                        </div>
                     </div>
                 </header>
 
                 <div className="p-8 space-y-6 max-w-7xl mx-auto w-full">
                     {adminError ? (
-                        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                            <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
                             {adminError}
                         </div>
                     ) : null}
 
-                    <div className="grid gap-6 lg:grid-cols-4">
-                        <Card className="lg:col-span-1">
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                    <Users className="h-4 w-4" />
-                                    Utilisateurs
-                                </CardTitle>
-                                <CardDescription>Liste des comptes clients.</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-2 max-h-[420px] overflow-y-auto">
+                    {/* User Management Grid */}
+                    <div className="grid gap-5 lg:grid-cols-4">
+
+                        {/* Utilisateurs */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                                        <Users className="h-4 w-4 text-blue-600" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-800">Utilisateurs</p>
+                                        <p className="text-xs text-slate-400">Comptes clients</p>
+                                    </div>
+                                </div>
+                                <Badge className="bg-blue-50 text-blue-600 border-blue-100 text-xs font-semibold">
+                                    {users.length}
+                                </Badge>
+                            </div>
+                            <div className="divide-y divide-slate-50 max-h-[400px] overflow-y-auto">
                                 {isLoadingAdmin ? (
-                                    <div className="text-sm text-muted-foreground">Chargement...</div>
+                                    <div className="px-5 py-8 text-center text-sm text-slate-400">Chargement...</div>
                                 ) : users.length === 0 ? (
-                                    <div className="text-sm text-muted-foreground">Aucun utilisateur.</div>
+                                    <div className="px-5 py-8 text-center text-sm text-slate-400">Aucun utilisateur</div>
                                 ) : (
                                     users.map((u) => (
                                         <div
                                             key={u.id}
-                                            className={`w-full rounded-md px-3 py-2 border ${selectedUser?.id === u.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-muted/40"}`}
+                                            className={`px-4 py-3 transition-colors ${selectedUser?.id === u.id ? "bg-blue-50/60" : "hover:bg-slate-50/80"}`}
                                         >
-                                            <button
-                                                onClick={() => handleSelectUser(u)}
-                                                className="w-full text-left"
-                                            >
-                                                <div className="text-sm font-medium">{u.username}</div>
-                                                <div className="text-xs text-muted-foreground">{u.email}</div>
+                                            <button onClick={() => handleSelectUser(u)} className="w-full text-left flex items-center gap-3 mb-2.5">
+                                                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                                    <span className="text-xs font-bold text-blue-600">{u.username.charAt(0).toUpperCase()}</span>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="text-sm font-medium text-slate-800 truncate">{u.username}</div>
+                                                    <div className="text-xs text-slate-400 truncate">{u.email}</div>
+                                                </div>
+                                                {selectedUser?.id === u.id && <ChevronRight className="h-4 w-4 text-blue-400 ml-auto flex-shrink-0" />}
                                             </button>
-                                            <div className="mt-2">
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
+                                            <div className="flex items-center gap-1.5 pl-11">
+                                                <button
                                                     onClick={() => handleChangeUserRole(u, "sav")}
                                                     disabled={updatingRoleUserId === u.id}
+                                                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors disabled:opacity-50"
                                                 >
-                                                    {updatingRoleUserId === u.id ? "..." : "Passer SAV"}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="ml-2"
+                                                    <UserCheck className="h-3 w-3" />
+                                                    {updatingRoleUserId === u.id ? "..." : "SAV"}
+                                                </button>
+                                                <button
                                                     onClick={() => handleEditUser(u)}
                                                     disabled={updatingUserId === u.id}
+                                                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200 transition-colors disabled:opacity-50"
                                                 >
-                                                    {updatingUserId === u.id ? "..." : "Modifier"}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    className="ml-2"
+                                                    <Pencil className="h-3 w-3" />
+                                                </button>
+                                                <button
                                                     onClick={() => handleDeleteUser(u)}
                                                     disabled={updatingUserId === u.id || currentUserId === u.id}
+                                                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-red-50 text-red-500 hover:bg-red-100 border border-red-200 transition-colors disabled:opacity-50"
                                                 >
-                                                    Supprimer
-                                                </Button>
+                                                    <Trash2 className="h-3 w-3" />
+                                                </button>
                                             </div>
                                         </div>
                                     ))
                                 )}
-                            </CardContent>
-                        </Card>
+                            </div>
+                        </div>
 
-                        <Card className="lg:col-span-1">
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                    <Shield className="h-4 w-4" />
-                                    Utilisateurs SAV
-                                </CardTitle>
-                                <CardDescription>Agents de support.</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-2 max-h-[420px] overflow-y-auto">
+                        {/* SAV */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                                        <Headphones className="h-4 w-4 text-emerald-600" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-800">Agents SAV</p>
+                                        <p className="text-xs text-slate-400">Support client</p>
+                                    </div>
+                                </div>
+                                <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100 text-xs font-semibold">
+                                    {savUsers.length}
+                                </Badge>
+                            </div>
+                            <div className="divide-y divide-slate-50 max-h-[400px] overflow-y-auto">
                                 {isLoadingAdmin ? (
-                                    <div className="text-sm text-muted-foreground">Chargement...</div>
+                                    <div className="px-5 py-8 text-center text-sm text-slate-400">Chargement...</div>
                                 ) : savUsers.length === 0 ? (
-                                    <div className="text-sm text-muted-foreground">Aucun agent SAV.</div>
+                                    <div className="px-5 py-8 text-center text-sm text-slate-400">Aucun agent SAV</div>
                                 ) : (
                                     savUsers.map((u) => (
-                                        <div key={u.id} className="rounded-md px-3 py-2 border border-muted/40">
-                                            <button
-                                                onClick={() => handleSelectUser(u)}
-                                                className="w-full text-left"
-                                            >
-                                                <div className="text-sm font-medium">{u.username}</div>
-                                                <div className="text-xs text-muted-foreground">{u.email}</div>
+                                        <div
+                                            key={u.id}
+                                            className={`px-4 py-3 transition-colors ${selectedUser?.id === u.id ? "bg-emerald-50/60" : "hover:bg-slate-50/80"}`}
+                                        >
+                                            <button onClick={() => handleSelectUser(u)} className="w-full text-left flex items-center gap-3 mb-2.5">
+                                                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                                                    <span className="text-xs font-bold text-emerald-600">{u.username.charAt(0).toUpperCase()}</span>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="text-sm font-medium text-slate-800 truncate">{u.username}</div>
+                                                    <div className="text-xs text-slate-400 truncate">{u.email}</div>
+                                                </div>
+                                                {selectedUser?.id === u.id && <ChevronRight className="h-4 w-4 text-emerald-400 ml-auto flex-shrink-0" />}
                                             </button>
-                                            <div className="mt-2">
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
+                                            <div className="flex items-center gap-1.5 pl-11">
+                                                <button
                                                     onClick={() => handleChangeUserRole(u, "user")}
                                                     disabled={updatingRoleUserId === u.id}
+                                                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-orange-50 text-orange-600 hover:bg-orange-100 border border-orange-200 transition-colors disabled:opacity-50"
                                                 >
-                                                    {updatingRoleUserId === u.id ? "..." : "Retirer SAV"}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="ml-2"
+                                                    <UserX className="h-3 w-3" />
+                                                    {updatingRoleUserId === u.id ? "..." : "Retirer"}
+                                                </button>
+                                                <button
                                                     onClick={() => handleEditUser(u)}
                                                     disabled={updatingUserId === u.id}
+                                                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200 transition-colors disabled:opacity-50"
                                                 >
-                                                    {updatingUserId === u.id ? "..." : "Modifier"}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    className="ml-2"
+                                                    <Pencil className="h-3 w-3" />
+                                                </button>
+                                                <button
                                                     onClick={() => handleDeleteUser(u)}
                                                     disabled={updatingUserId === u.id || currentUserId === u.id}
+                                                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-red-50 text-red-500 hover:bg-red-100 border border-red-200 transition-colors disabled:opacity-50"
                                                 >
-                                                    Supprimer
-                                                </Button>
+                                                    <Trash2 className="h-3 w-3" />
+                                                </button>
                                             </div>
                                         </div>
                                     ))
                                 )}
-                            </CardContent>
-                        </Card>
+                            </div>
+                        </div>
 
-                        <Card className="lg:col-span-1">
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                    <Shield className="h-4 w-4" />
-                                    Admins
-                                </CardTitle>
-                                <CardDescription>Comptes administrateurs.</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-2 max-h-[420px] overflow-y-auto">
+                        {/* Admins */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                                        <Crown className="h-4 w-4 text-indigo-600" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-800">Admins</p>
+                                        <p className="text-xs text-slate-400">Administrateurs</p>
+                                    </div>
+                                </div>
+                                <Badge className="bg-indigo-50 text-indigo-600 border-indigo-100 text-xs font-semibold">
+                                    {adminUsers.length}
+                                </Badge>
+                            </div>
+                            <div className="divide-y divide-slate-50 max-h-[400px] overflow-y-auto">
                                 {isLoadingAdmin ? (
-                                    <div className="text-sm text-muted-foreground">Chargement...</div>
+                                    <div className="px-5 py-8 text-center text-sm text-slate-400">Chargement...</div>
                                 ) : adminUsers.length === 0 ? (
-                                    <div className="text-sm text-muted-foreground">Aucun admin.</div>
+                                    <div className="px-5 py-8 text-center text-sm text-slate-400">Aucun admin</div>
                                 ) : (
                                     adminUsers.map((u) => (
-                                        <div key={u.id} className="rounded-md px-3 py-2 border border-muted/40">
-                                            <button
-                                                onClick={() => handleSelectUser(u)}
-                                                className="w-full text-left"
-                                            >
-                                                <div className="text-sm font-medium">{u.username}</div>
-                                                <div className="text-xs text-muted-foreground">{u.email}</div>
+                                        <div
+                                            key={u.id}
+                                            className={`px-4 py-3 transition-colors ${selectedUser?.id === u.id ? "bg-indigo-50/60" : "hover:bg-slate-50/80"}`}
+                                        >
+                                            <button onClick={() => handleSelectUser(u)} className="w-full text-left flex items-center gap-3 mb-2.5">
+                                                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                                                    <span className="text-xs font-bold text-indigo-600">{u.username.charAt(0).toUpperCase()}</span>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="text-sm font-medium text-slate-800 truncate">{u.username}</div>
+                                                    <div className="text-xs text-slate-400 truncate">{u.email}</div>
+                                                </div>
+                                                {selectedUser?.id === u.id && <ChevronRight className="h-4 w-4 text-indigo-400 ml-auto flex-shrink-0" />}
                                             </button>
-                                            <div className="mt-2">
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
+                                            <div className="flex items-center gap-1.5 pl-11">
+                                                <button
                                                     onClick={() => handleEditUser(u)}
                                                     disabled={updatingUserId === u.id}
+                                                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200 transition-colors disabled:opacity-50"
                                                 >
-                                                    {updatingUserId === u.id ? "..." : "Modifier"}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    className="ml-2"
+                                                    <Pencil className="h-3 w-3" />
+                                                    Modifier
+                                                </button>
+                                                <button
                                                     onClick={() => handleDeleteUser(u)}
                                                     disabled={updatingUserId === u.id || currentUserId === u.id}
+                                                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-red-50 text-red-500 hover:bg-red-100 border border-red-200 transition-colors disabled:opacity-50"
                                                 >
-                                                    Supprimer
-                                                </Button>
+                                                    <Trash2 className="h-3 w-3" />
+                                                </button>
                                             </div>
                                         </div>
                                     ))
                                 )}
-                            </CardContent>
-                        </Card>
+                            </div>
+                        </div>
 
-                        <Card className="lg:col-span-1">
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                    <MessageCircle className="h-4 w-4" />
-                                    Conversations
-                                </CardTitle>
-                                <CardDescription>
-                                    {selectedUser ? `Sessions de ${selectedUser.username}` : "Sélectionne un utilisateur."}
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-2 max-h-[420px] overflow-y-auto">
-                                {selectedUser && sessions.length === 0 ? (
-                                    <div className="text-sm text-muted-foreground">Aucune session.</div>
+                        {/* Conversations */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center">
+                                        <MessageCircle className="h-4 w-4 text-violet-600" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-800">Conversations</p>
+                                        <p className="text-xs text-slate-400">
+                                            {selectedUser ? selectedUser.username : "Sélectionner"}
+                                        </p>
+                                    </div>
+                                </div>
+                                {sessions.length > 0 && (
+                                    <Badge className="bg-violet-50 text-violet-600 border-violet-100 text-xs font-semibold">
+                                        {sessions.length}
+                                    </Badge>
+                                )}
+                            </div>
+                            <div className="divide-y divide-slate-50 max-h-[400px] overflow-y-auto">
+                                {!selectedUser ? (
+                                    <div className="px-5 py-10 text-center">
+                                        <MessageCircle className="h-8 w-8 text-slate-200 mx-auto mb-2" />
+                                        <p className="text-sm text-slate-400">Sélectionne un utilisateur</p>
+                                    </div>
+                                ) : sessions.length === 0 ? (
+                                    <div className="px-5 py-8 text-center text-sm text-slate-400">Aucune session</div>
                                 ) : (
                                     sessions.map((s) => (
                                         <button
                                             key={s.id}
                                             onClick={() => handleSelectSession(s)}
-                                            className={`w-full text-left rounded-md px-3 py-2 border ${selectedSession?.id === s.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-muted/40"}`}
+                                            className={`w-full text-left px-4 py-3 transition-colors ${selectedSession?.id === s.id ? "bg-violet-50/70" : "hover:bg-slate-50/80"}`}
                                         >
-                                            <div className="text-sm font-medium">{s.title || "Sans titre"}</div>
-                                            <div className="text-xs text-muted-foreground">Session #{s.id}</div>
-                                            <div className="mt-2 flex items-center gap-2">
-                                                <Badge variant="secondary" className={`${s.status === "closed" ? "bg-slate-200 text-slate-700" : "bg-emerald-100 text-emerald-700"} border-0`}>
-                                                    {s.status === "closed" ? "Clôturée" : "Ouverte"}
-                                                </Badge>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={(event) => {
-                                                        event.stopPropagation()
-                                                        handleCloseSession(s)
-                                                    }}
-                                                    disabled={closingSessionId === s.id || s.status === "closed"}
-                                                >
-                                                    {closingSessionId === s.id ? "..." : "Clôturer"}
-                                                </Button>
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <div className="text-sm font-medium text-slate-800 truncate">{s.title || "Sans titre"}</div>
+                                                    <div className="text-xs text-slate-400 mt-0.5">#{s.id}</div>
+                                                </div>
+                                                <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                                                    <div className={`flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full ${s.status === "closed" ? "bg-slate-100 text-slate-500" : "bg-emerald-100 text-emerald-700"}`}>
+                                                        {s.status === "closed"
+                                                            ? <><CheckCircle2 className="h-2.5 w-2.5" /> Clôturée</>
+                                                            : <><CircleDot className="h-2.5 w-2.5" /> Ouverte</>
+                                                        }
+                                                    </div>
+                                                    {s.status !== "closed" && (
+                                                        <button
+                                                            onClick={(event) => { event.stopPropagation(); handleCloseSession(s) }}
+                                                            disabled={closingSessionId === s.id}
+                                                            className="text-[11px] px-2 py-0.5 rounded-md bg-slate-50 text-slate-500 hover:bg-slate-100 border border-slate-200 transition-colors disabled:opacity-50"
+                                                        >
+                                                            {closingSessionId === s.id ? "..." : "Clôturer"}
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         </button>
                                     ))
                                 )}
-                            </CardContent>
-                        </Card>
+                            </div>
+                        </div>
                     </div>
 
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Répondre à un utilisateur</CardTitle>
-                            <CardDescription>
-                                {selectedSession ? `Session #${selectedSession.id}` : "Sélectionne une session pour répondre."}
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="max-h-[360px] overflow-y-auto space-y-3 border rounded-md p-3">
+                    {/* Reply Panel */}
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                                <MessageSquare className="h-4 w-4 text-slate-600" />
+                            </div>
+                            <div>
+                                <p className="text-sm font-semibold text-slate-800">Répondre à un utilisateur</p>
+                                <p className="text-xs text-slate-400">
+                                    {selectedSession ? `Session #${selectedSession.id} · ${selectedUser?.username}` : "Sélectionne une session pour répondre"}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            <div className="min-h-[240px] max-h-[360px] overflow-y-auto space-y-3 rounded-lg bg-slate-50/60 border border-slate-100 p-4">
                                 {messages.length === 0 ? (
-                                    <div className="text-sm text-muted-foreground">Aucun message.</div>
+                                    <div className="flex flex-col items-center justify-center h-40 gap-2">
+                                        <MessageSquare className="h-8 w-8 text-slate-200" />
+                                        <p className="text-sm text-slate-400">Aucun message</p>
+                                    </div>
                                 ) : (
                                     messages.map((m) => (
                                         <div
@@ -665,19 +767,19 @@ export default function DashboardPage() {
                                             className={`flex ${m.role === "user" ? "justify-start" : "justify-end"}`}
                                         >
                                             <div
-                                                className={`max-w-[70%] rounded-2xl px-3 py-2 text-sm ${
+                                                className={`max-w-[72%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
                                                     m.role === "user"
-                                                        ? "bg-muted/40"
+                                                        ? "bg-white border border-slate-200 text-slate-700"
                                                         : m.role === "sav"
                                                         ? "bg-emerald-600 text-white"
-                                                        : "bg-primary text-primary-foreground"
+                                                        : "bg-indigo-600 text-white"
                                                 }`}
                                             >
-                                                <div className="text-[10px] uppercase tracking-wide opacity-80">
-                                                    {m.role === "user" ? "Utilisateur" : m.role === "sav" ? "Agent" : "IA"}
+                                                <div className="text-[10px] uppercase tracking-widest opacity-70 font-medium mb-1">
+                                                    {m.role === "user" ? "Client" : m.role === "sav" ? "Agent" : "IA"}
                                                 </div>
-                                                <div className="mt-1">{m.content}</div>
-                                                <div className="mt-1 text-[10px] opacity-70">{m.createdAt}</div>
+                                                <div className="leading-relaxed">{m.content}</div>
+                                                <div className="mt-1.5 text-[10px] opacity-60 text-right">{m.createdAt}</div>
                                             </div>
                                         </div>
                                     ))
@@ -688,17 +790,121 @@ export default function DashboardPage() {
                                 <Input
                                     value={reply}
                                     onChange={(event) => setReply(event.target.value)}
-                                    placeholder="Réponse agent..."
+                                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleReply() } }}
+                                    placeholder={selectedSession ? "Écrire une réponse..." : "Sélectionne une session d'abord..."}
                                     disabled={!selectedSession}
+                                    className="flex-1 bg-slate-50 border-slate-200 focus-visible:ring-indigo-500/30 placeholder:text-slate-400"
                                 />
-                                <Button onClick={handleReply} disabled={!selectedSession || !reply.trim()}>
+                                <Button
+                                    onClick={handleReply}
+                                    disabled={!selectedSession || !reply.trim()}
+                                    className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 px-5"
+                                >
+                                    <Send className="h-4 w-4" />
                                     Envoyer
                                 </Button>
                             </div>
-                        </CardContent>
-                    </Card>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            {/* Edit User Dialog */}
+            <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Modifier l&apos;utilisateur</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="edit-prenom">Prénom</Label>
+                                <Input
+                                    id="edit-prenom"
+                                    value={editForm.prenom}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, prenom: e.target.value }))}
+                                    placeholder="Prénom"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="edit-nom">Nom</Label>
+                                <Input
+                                    id="edit-nom"
+                                    value={editForm.nom}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, nom: e.target.value }))}
+                                    placeholder="Nom"
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="edit-username">Nom d&apos;utilisateur</Label>
+                            <Input
+                                id="edit-username"
+                                value={editForm.username}
+                                onChange={(e) => setEditForm((f) => ({ ...f, username: e.target.value }))}
+                                placeholder="username"
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="edit-email">Email</Label>
+                            <Input
+                                id="edit-email"
+                                type="email"
+                                value={editForm.email}
+                                onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                                placeholder="email@exemple.com"
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="edit-role">Rôle</Label>
+                            <Select value={editForm.role} onValueChange={(v) => setEditForm((f) => ({ ...f, role: v }))}>
+                                <SelectTrigger id="edit-role">
+                                    <SelectValue placeholder="Choisir un rôle" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="user">Utilisateur</SelectItem>
+                                    <SelectItem value="sav">Agent SAV</SelectItem>
+                                    <SelectItem value="admin">Administrateur</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Annuler</Button>
+                        <Button
+                            onClick={handleEditSubmit}
+                            disabled={updatingUserId === editingUser?.id || !editForm.username.trim() || !editForm.email.trim()}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                        >
+                            {updatingUserId === editingUser?.id ? "Enregistrement..." : "Enregistrer"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Supprimer le compte ?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Vous êtes sur le point de supprimer le compte de{" "}
+                            <span className="font-semibold text-slate-800">{deletingUser?.username}</span>{" "}
+                            ({deletingUser?.email}). Cette action est irréversible.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Annuler</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDeleteConfirm}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                            Supprimer
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+            </>
         )
     }
 
