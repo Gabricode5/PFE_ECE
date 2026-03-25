@@ -17,7 +17,8 @@ import {
     Bot,
     MessageCircle,
     Zap,
-    Sparkles
+    Sparkles,
+    ShieldAlert
 } from "lucide-react"
 import { Streamdown } from "streamdown"
 
@@ -349,6 +350,13 @@ export default function AiAssistantPage() {
                         <Badge variant="outline" className="text-indigo-600 border-indigo-100 gap-1 text-[10px] py-1">
                             <Sparkles className="h-3 w-3" /> Chiffrement actif
                         </Badge>
+                    </div>
+                    <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                        <p>
+                            Avant d&apos;envoyer un message, merci de ne pas partager de donnees confidentielles
+                            comme des mots de passe, informations bancaires, donnees de sante ou pieces d&apos;identite.
+                        </p>
                     </div>
                     {error ? <p className="text-sm text-red-600">{error}</p> : null}
                     <form onSubmit={handleSend} className="relative group">
