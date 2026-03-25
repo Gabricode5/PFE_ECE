@@ -75,6 +75,7 @@ services:
       - .env
     environment:
       - CORS_ORIGINS=http://localhost:3005
+      - DATABASE_URL=postgresql://admin:Password1234@postgres:5432/ticketdb
     volumes:
       - ./backend:/app
     depends_on:

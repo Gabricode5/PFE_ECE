@@ -1,6 +1,6 @@
 #C'est la structure de ta Base de données (les tables SQL).
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, CheckConstraint
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector

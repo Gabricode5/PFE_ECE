@@ -54,7 +54,7 @@ function LoginForm() {
             // Afficher le message d'erreur du backend (ex: "L'email ou le mot de passe est incorrect")
             setError(data.detail || "Échec de la connexion")
         }
-        } catch (err) {
+        } catch {
             setError("Impossible de contacter le serveur.")
         }
     }

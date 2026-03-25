@@ -90,6 +90,7 @@ CREATE TABLE knowledge_base (
     contenu TEXT NOT NULL,                                    -- Contenu textuel indexé
     embedding vector(1024),                                   -- Vecteur embedding (mistral-embed 1024)
     category VARCHAR(50),                                     -- Catégorie logique (ex: service-public)
+    source VARCHAR(500),                                      -- Nom/fichier/source logique du document indexé
     date_creation TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP -- Date d'insertion
 );
 

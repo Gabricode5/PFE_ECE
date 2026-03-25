@@ -3,7 +3,6 @@ import logging
 from sqlalchemy import inspect, text
 
 from database import engine
-import models  # noqa: F401  # ensures models are imported so metadata is loaded
 
 
 logging.basicConfig(level=logging.INFO)
@@ -119,4 +118,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

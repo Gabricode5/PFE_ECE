@@ -2,12 +2,11 @@
 
 from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
-import requests
 import os
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 import models, schemas
-from database import engine, get_db
+from database import get_db
 from datetime import datetime, timedelta
 import uuid
 from jose import JWTError, jwt
@@ -54,7 +53,6 @@ app.add_middleware(
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
-DATABASE_URL = os.getenv("DATABASE_URL")
 
 # CONFIGURATION
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))

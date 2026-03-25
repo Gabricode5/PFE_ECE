@@ -52,7 +52,7 @@ export default function SignUpPage() {
                 // 2. On met à jour le state 'error' avec le message précis du backend
                 setError(errorData.detail || "Une erreur est survenue")
             }
-        } catch (err) {
+        } catch {
             setError("Impossible de contacter le serveur.")
         }
     }
@@ -73,7 +73,7 @@ export default function SignUpPage() {
                         </div>
                     )}
                     <div className="space-y-2">
-                        <Label htmlFor="username">Nom d'utilisateur</Label>
+                        <Label htmlFor="username">Nom d&apos;utilisateur</Label>
                         <Input id="username" name="username" placeholder="nom_d_utilisateur" required />
                     </div>
                     <div className="space-y-2">
