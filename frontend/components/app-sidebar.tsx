@@ -17,30 +17,47 @@ import {
     Trash2
 } from "lucide-react"
 
-// Type pour tes conversations
 interface Conversation {
-    id: string;
-    title: string;
+    id: string
+    title: string
+}
+
+type UserRole = "user" | "sav" | "admin"
+
+interface SidebarUser {
+    username: string
+    email: string
+    initials: string
+    role: UserRole
+}
+
+const DEFAULT_USER: SidebarUser = {
+    username: "Utilisateur",
+    email: "chargement...",
+    initials: "U",
+    role: "user",
+}
+
+function normalizeRole(role: string | null): UserRole {
+    if (role === "admin" || role === "sav") {
+        return role
+    }
+    return "user"
 }
 
 export function AppSidebar() {
     const pathname = usePathname()
-    
-    const [user, setUser] = useState({
-        username: "Utilisateur",
-        email: "chargement...",
-        initials: "U",
-        role: "user"
-    })
 
-    // État pour stocker l'historique des conversations
+    const [user, setUser] = useState<SidebarUser>(DEFAULT_USER)
     const [conversations, setConversations] = useState<Conversation[]>([])
     const [isLoadingConversations, setIsLoadingConversations] = useState(false)
+    const canManageKnowledgeBase = user.role === "admin" || user.role === "sav"
+    const canAccessConversations = user.role !== "admin"
 
     useEffect(() => {
         const storedUser = localStorage.getItem("username")
         const storedEmail = localStorage.getItem("user_email") || "votre@email.com"
-        const storedRole = localStorage.getItem("user_role") || "user"
+        const storedRole = normalizeRole(localStorage.getItem("user_role"))
 
         if (storedUser) {
             setUser({
@@ -183,7 +200,7 @@ export function AppSidebar() {
                             </Link>
                         </Button>
 
-                        {user.role === "admin" && (
+                        {canManageKnowledgeBase && (
                             <Button
                                 variant={isActive("/knowledge-base") ? "secondary" : "ghost"}
                                 asChild
@@ -199,36 +216,32 @@ export function AppSidebar() {
                 </div>
 
                 {/* 2. Section Discussions (Style ChatGPT) */}
-                {user.role === "user" && (
+                {canAccessConversations && (
                 <div>
                     <div className="flex items-center justify-between px-4 mb-2">
                         <h3 className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
                             Discussions
                         </h3>
-                        {user.role !== "admin" && (
-                            <button
-                                type="button"
-                                onClick={handleCreateConversation}
-                                className="hover:text-primary transition-colors"
-                                title="Nouvelle discussion"
-                            >
-                                <Plus className="h-4 w-4 cursor-pointer" />
-                            </button>
-                        )}
+                        <button
+                            type="button"
+                            onClick={handleCreateConversation}
+                            className="hover:text-primary transition-colors"
+                            title="Nouvelle discussion"
+                        >
+                            <Plus className="h-4 w-4 cursor-pointer" />
+                        </button>
                     </div>
                     
                     <div className="space-y-1">
                         {/* Bouton pour créer une nouvelle discussion */}
-                        {user.role !== "admin" && (
-                            <Button
-                                variant="outline"
-                                className="w-full justify-start border-dashed border-sidebar-border hover:border-primary/50 mb-2"
-                                onClick={handleCreateConversation}
-                            >
-                                <Plus className="mr-2 h-4 w-4" />
-                                Nouveau chat
-                            </Button>
-                        )}
+                        <Button
+                            variant="outline"
+                            className="w-full justify-start border-dashed border-sidebar-border hover:border-primary/50 mb-2"
+                            onClick={handleCreateConversation}
+                        >
+                            <Plus className="mr-2 h-4 w-4" />
+                            Nouveau chat
+                        </Button>
 
                         {/* Liste des conversations récentes */}
                         <div className="max-h-[300px] overflow-y-auto space-y-1 pr-1 custom-scrollbar">
