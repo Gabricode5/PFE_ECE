@@ -107,6 +107,20 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
 # Stockage simple du statut d'ingestion (dev/local).
 INGEST_JOBS: dict[str, dict] = {}
 
+from database import engine as _engine
+from sqlalchemy import text as _text
+
+@app.on_event("startup")
+def run_migrations():
+    with _engine.connect() as conn:
+        conn.execute(_text(
+            "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS feedback INTEGER"
+        ))
+        conn.execute(_text(
+            "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS transfer_reason VARCHAR(50)"
+        ))
+        conn.commit()
+
 def create_access_token(data: dict):
     to_encode = data.copy()
     # Utilise datetime.now() au lieu de utcnow() pour tester
@@ -982,3 +996,296 @@ def ask_question_stream(
             db.commit()
 
     return StreamingResponse(stream_tokens(), media_type="text/plain")
+
+
+# ── Message Feedback ──────────────────────────────────────────────────────────
+
+@app.patch("/messages/{message_id}/feedback")
+def rate_message(
+    message_id: int,
+    payload: schemas.MessageFeedbackRequest,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if payload.feedback not in (1, -1):
+        raise HTTPException(status_code=400, detail="feedback doit être 1 ou -1")
+
+    message = db.query(models.ChatMessage).filter(models.ChatMessage.id == message_id).first()
+    if not message:
+        raise HTTPException(status_code=404, detail="Message introuvable")
+
+    if message.type_envoyeur != "ai":
+        raise HTTPException(status_code=400, detail="Le feedback n'est applicable qu'aux messages IA")
+
+    session = db.query(models.ChatSession).filter(models.ChatSession.id == message.id_session).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+
+    user = get_user_by_email(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    if not is_admin_or_sav(user) and session.id_utilisateur != user.id:
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    message.feedback = payload.feedback
+    db.commit()
+    return {"ok": True}
+
+
+# ── Human Transfer ────────────────────────────────────────────────────────────
+
+VALID_REASONS = {"technique", "complexe", "sensible", "autre"}
+REASON_LABELS = {
+    "technique": "Technique",
+    "complexe": "Complexe",
+    "sensible": "Sensible",
+    "autre": "Autre",
+}
+REASON_COLORS = {
+    "technique": "#0ea5e9",
+    "complexe": "#f59e0b",
+    "sensible": "#ef4444",
+    "autre": "#8b5cf6",
+}
+
+@app.post("/sessions/{session_id}/transfer", response_model=schemas.ChatSessionResponse)
+def transfer_session(
+    session_id: int,
+    payload: schemas.TransferRequest,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if payload.reason not in VALID_REASONS:
+        raise HTTPException(status_code=400, detail=f"Raison invalide. Valeurs acceptées : {', '.join(VALID_REASONS)}")
+
+    user = get_user_by_email(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+
+    if session.id_utilisateur != user.id and not is_admin_or_sav(user):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    if session.status != "open":
+        raise HTTPException(status_code=400, detail="Cette session ne peut pas être transférée.")
+
+    session.status = "transferred"
+    session.transfer_reason = payload.reason
+
+    system_msg = models.ChatMessage(
+        id_session=session_id,
+        type_envoyeur="ai",
+        contenu=f"Vous avez été mis en relation avec un agent humain. Raison : {REASON_LABELS.get(payload.reason, payload.reason)}.",
+    )
+    db.add(system_msg)
+    db.commit()
+    db.refresh(session)
+
+    return {
+        "id": session.id,
+        "id_utilisateur": session.id_utilisateur,
+        "title": session.title,
+        "status": session.status,
+        "transfer_reason": session.transfer_reason,
+        "date_creation": session.date_creation,
+    }
+
+
+@app.post("/sessions/{session_id}/resolve", response_model=schemas.ChatSessionResponse)
+def resolve_session(
+    session_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = get_user_by_email(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if not is_admin_or_sav(user):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    session = db.query(models.ChatSession).filter(models.ChatSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    if session.status != "transferred":
+        raise HTTPException(status_code=400, detail="Cette session n'est pas en transfert.")
+
+    session.status = "open"
+    session.transfer_reason = None
+
+    system_msg = models.ChatMessage(
+        id_session=session_id,
+        type_envoyeur="ai",
+        contenu="L'agent SAV a rétabli la conversation avec l'assistant IA.",
+    )
+    db.add(system_msg)
+    db.commit()
+    db.refresh(session)
+
+    return {
+        "id": session.id,
+        "id_utilisateur": session.id_utilisateur,
+        "title": session.title,
+        "status": session.status,
+        "transfer_reason": session.transfer_reason,
+        "date_creation": session.date_creation,
+    }
+
+
+@app.get("/sessions/transferred")
+def get_transferred_sessions(
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = get_user_by_email(db, current_user)
+    if not is_admin_or_sav(user):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    rows = (
+        db.query(models.ChatSession, models.Utilisateur.username)
+        .join(models.Utilisateur, models.ChatSession.id_utilisateur == models.Utilisateur.id)
+        .filter(models.ChatSession.status == "transferred")
+        .order_by(models.ChatSession.date_creation.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": s.id,
+            "title": s.title,
+            "status": s.status,
+            "transfer_reason": s.transfer_reason,
+            "date_creation": s.date_creation,
+            "username": username,
+        }
+        for s, username in rows
+    ]
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+@app.get("/analytics/stats")
+def get_analytics_stats(
+    days: int = 30,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = get_user_by_email(db, current_user)
+    if not is_admin_or_sav(user):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    from sqlalchemy import func as sqlfunc
+    from_date = datetime.utcnow() - timedelta(days=days)
+
+    # Total sessions in period
+    total_sessions = db.query(sqlfunc.count(models.ChatSession.id)).filter(
+        models.ChatSession.date_creation >= from_date
+    ).scalar() or 0
+
+    # Sessions with at least one SAV message (transfers)
+    transferred_sq = (
+        db.query(models.ChatMessage.id_session)
+        .filter(
+            models.ChatMessage.type_envoyeur == "sav",
+            models.ChatMessage.date_creation >= from_date,
+        )
+        .distinct()
+        .subquery()
+    )
+    transferred_count = db.query(sqlfunc.count()).select_from(transferred_sq).scalar() or 0
+
+    ai_resolution_rate = (
+        round((total_sessions - transferred_count) / total_sessions * 100, 1)
+        if total_sessions > 0 else 0.0
+    )
+
+    # Daily message counts grouped by day and sender type
+    from sqlalchemy import case
+    daily_rows = (
+        db.query(
+            sqlfunc.date_trunc("day", models.ChatMessage.date_creation).label("day"),
+            models.ChatMessage.type_envoyeur,
+            sqlfunc.count(models.ChatMessage.id).label("cnt"),
+        )
+        .filter(models.ChatMessage.date_creation >= from_date)
+        .group_by("day", models.ChatMessage.type_envoyeur)
+        .order_by("day")
+        .all()
+    )
+
+    # Build day → {IA, Humain} map
+    day_map: dict = {}
+    for row in daily_rows:
+        label = row.day.strftime("%-d %b") if row.day else "?"
+        if label not in day_map:
+            day_map[label] = {"name": label, "IA": 0, "Humain": 0}
+        if row.type_envoyeur == "ai":
+            day_map[label]["IA"] += row.cnt
+        elif row.type_envoyeur == "sav":
+            day_map[label]["Humain"] += row.cnt
+
+    daily_messages = list(day_map.values())
+
+    # Satisfaction score from thumbs-up feedback on AI messages
+    total_rated = db.query(sqlfunc.count(models.ChatMessage.id)).filter(
+        models.ChatMessage.type_envoyeur == "ai",
+        models.ChatMessage.feedback.isnot(None),
+        models.ChatMessage.date_creation >= from_date,
+    ).scalar() or 0
+
+    positive = db.query(sqlfunc.count(models.ChatMessage.id)).filter(
+        models.ChatMessage.type_envoyeur == "ai",
+        models.ChatMessage.feedback == 1,
+        models.ChatMessage.date_creation >= from_date,
+    ).scalar() or 0
+
+    satisfaction_score = round(positive / total_rated * 5, 2) if total_rated > 0 else None
+
+    # SAV agents
+    sav_role = db.query(models.Role).filter(models.Role.nom_role == "sav").first()
+    sav_agents = []
+    if sav_role:
+        sav_users = db.query(models.Utilisateur).filter(
+            models.Utilisateur.id_role == sav_role.id
+        ).all()
+        per_agent = round(transferred_count / len(sav_users)) if sav_users else 0
+        for u in sav_users:
+            full_name = " ".join(filter(None, [u.prenom, u.nom])) or u.username
+            initials = "".join(w[0].upper() for w in full_name.split()[:2])
+            sav_agents.append({
+                "name": full_name,
+                "initials": initials,
+                "conversations": per_agent,
+            })
+
+    # Transfer reason breakdown (real data)
+    reason_rows = (
+        db.query(models.ChatSession.transfer_reason, sqlfunc.count(models.ChatSession.id))
+        .filter(
+            models.ChatSession.transfer_reason.isnot(None),
+            models.ChatSession.date_creation >= from_date,
+        )
+        .group_by(models.ChatSession.transfer_reason)
+        .all()
+    )
+    transfer_reasons = [
+        {
+            "name": REASON_LABELS.get(r, r),
+            "value": cnt,
+            "color": REASON_COLORS.get(r, "#94a3b8"),
+        }
+        for r, cnt in reason_rows
+    ]
+
+    return {
+        "total_sessions": total_sessions,
+        "ai_resolution_rate": ai_resolution_rate,
+        "transferred_count": transferred_count,
+        "satisfaction_score": satisfaction_score,
+        "daily_messages": daily_messages,
+        "sav_agents": sav_agents,
+        "transfer_reasons": transfer_reasons,
+    }

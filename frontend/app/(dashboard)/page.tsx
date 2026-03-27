@@ -30,8 +30,13 @@ import {
     Crown,
     Headphones,
     CircleDot,
-    CheckCircle2
+    CheckCircle2,
+    AlertCircle,
+    BarChart2,
+    BookOpen,
+    ArrowRight,
 } from "lucide-react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 
@@ -49,6 +54,28 @@ type SessionItem = {
     title?: string | null
     date_creation?: string | null
     status?: string | null
+}
+
+type TransferredSession = {
+    id: number
+    title?: string | null
+    status: string
+    transfer_reason?: string | null
+    date_creation?: string | null
+    username: string
+}
+
+const REASON_STYLES: Record<string, string> = {
+    technique: "bg-sky-100 text-sky-700 border-sky-200",
+    complexe:  "bg-amber-100 text-amber-700 border-amber-200",
+    sensible:  "bg-red-100 text-red-700 border-red-200",
+    autre:     "bg-violet-100 text-violet-700 border-violet-200",
+}
+const REASON_LABELS: Record<string, string> = {
+    technique: "Technique",
+    complexe:  "Complexe",
+    sensible:  "Sensible",
+    autre:     "Autre",
 }
 
 type MessageItem = {
@@ -91,6 +118,14 @@ export default function DashboardPage() {
     const [editForm, setEditForm] = useState({ username: "", email: "", prenom: "", nom: "", role: "" })
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
     const [deletingUser, setDeletingUser] = useState<UserItem | null>(null)
+
+    // SAV state
+    const [transferredSessions, setTransferredSessions] = useState<TransferredSession[]>([])
+    const [savSelectedSession, setSavSelectedSession] = useState<TransferredSession | null>(null)
+    const [savMessages, setSavMessages] = useState<MessageItem[]>([])
+    const [savReply, setSavReply] = useState("")
+    const [isLoadingSav, setIsLoadingSav] = useState(false)
+    const [isResolving, setIsResolving] = useState(false)
 
     useEffect(() => {
         const storedRole = localStorage.getItem("user_role") || "user"
@@ -177,6 +212,80 @@ export default function DashboardPage() {
         if (role !== "admin") return
         loadAdminData()
     }, [role])
+
+    useEffect(() => {
+        if (role !== "sav" && role !== "admin") return
+        async function loadTransferredData() {
+            if (role === "sav") setIsLoadingSav(true)
+            try {
+                const res = await fetch("/api/sessions/transferred")
+                if (res.ok) {
+                    const data = await res.json()
+                    setTransferredSessions(Array.isArray(data) ? data : [])
+                }
+            } catch { /* ignore */ } finally {
+                if (role === "sav") setIsLoadingSav(false)
+            }
+        }
+        loadTransferredData()
+    }, [role])
+
+    const handleSavSelectSession = async (s: TransferredSession) => {
+        setSavSelectedSession(s)
+        setSavMessages([])
+        try {
+            const res = await fetch(`/api/messages?session_id=${s.id}`)
+            if (!res.ok) return
+            const data = await res.json()
+            if (!Array.isArray(data)) return
+            setSavMessages(data.map((item: { id?: number | string; type_envoyeur: string; contenu?: string | null; date_creation?: string | null }) => ({
+                id: String(item.id ?? Date.now()),
+                role: item.type_envoyeur === "sav" ? "sav" : item.type_envoyeur === "ai" ? "ai" : "user",
+                content: item.contenu ?? "",
+                createdAt: item.date_creation
+                    ? new Date(item.date_creation).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+                    : "",
+            })))
+        } catch { /* ignore */ }
+    }
+
+    const handleSavReply = async () => {
+        const trimmed = savReply.trim()
+        if (!trimmed || !savSelectedSession) return
+        try {
+            const res = await fetch("/api/messages", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id_session: savSelectedSession.id, type_envoyeur: "sav", contenu: trimmed }),
+            })
+            if (!res.ok) return
+            const data = await res.json()
+            setSavMessages(prev => [...prev, {
+                id: String(data.id),
+                role: "sav",
+                content: data.contenu ?? trimmed,
+                createdAt: data.date_creation
+                    ? new Date(data.date_creation).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+                    : "",
+            }])
+            setSavReply("")
+        } catch { /* ignore */ }
+    }
+
+    const handleResolveSession = async () => {
+        if (!savSelectedSession || isResolving) return
+        setIsResolving(true)
+        try {
+            const res = await fetch(`/api/sessions/${savSelectedSession.id}/resolve`, { method: "POST" })
+            if (res.ok) {
+                setTransferredSessions(prev => prev.filter(s => s.id !== savSelectedSession.id))
+                setSavSelectedSession(null)
+                setSavMessages([])
+            }
+        } catch { /* ignore */ } finally {
+            setIsResolving(false)
+        }
+    }
 
     const handleChangeUserRole = async (userItem: UserItem, newRole: "user" | "sav" | "admin") => {
         setAdminError(null)
@@ -716,9 +825,11 @@ export default function DashboardPage() {
                                                     <div className="text-xs text-slate-400 mt-0.5">#{s.id}</div>
                                                 </div>
                                                 <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                                                    <div className={`flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full ${s.status === "closed" ? "bg-slate-100 text-slate-500" : "bg-emerald-100 text-emerald-700"}`}>
+                                                    <div className={`flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-full ${s.status === "closed" ? "bg-slate-100 text-slate-500" : s.status === "transferred" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
                                                         {s.status === "closed"
                                                             ? <><CheckCircle2 className="h-2.5 w-2.5" /> Clôturée</>
+                                                            : s.status === "transferred"
+                                                            ? <><AlertCircle className="h-2.5 w-2.5" /> Transférée</>
                                                             : <><CircleDot className="h-2.5 w-2.5" /> Ouverte</>
                                                         }
                                                     </div>
@@ -740,69 +851,102 @@ export default function DashboardPage() {
                         </div>
                     </div>
 
-                    {/* Reply Panel */}
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
-                                <MessageSquare className="h-4 w-4 text-slate-600" />
+                    {/* Platform Overview */}
+                    <div className="grid gap-5 lg:grid-cols-3">
+                        {/* Transfers requiring attention */}
+                        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                                        <Headphones className="h-4 w-4 text-amber-600" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-800">Transferts en cours</p>
+                                        <p className="text-xs text-slate-400">Sessions en attente d&apos;un agent SAV</p>
+                                    </div>
+                                </div>
+                                <Badge className="bg-amber-50 text-amber-600 border-amber-100 text-xs font-semibold">{transferredSessions.length}</Badge>
                             </div>
-                            <div>
-                                <p className="text-sm font-semibold text-slate-800">Répondre à un utilisateur</p>
-                                <p className="text-xs text-slate-400">
-                                    {selectedSession ? `Session #${selectedSession.id} · ${selectedUser?.username}` : "Sélectionne une session pour répondre"}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="p-5 space-y-4">
-                            <div className="min-h-[240px] max-h-[360px] overflow-y-auto space-y-3 rounded-lg bg-slate-50/60 border border-slate-100 p-4">
-                                {messages.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center h-40 gap-2">
-                                        <MessageSquare className="h-8 w-8 text-slate-200" />
-                                        <p className="text-sm text-slate-400">Aucun message</p>
+                            <div className="divide-y divide-slate-50 max-h-[280px] overflow-y-auto">
+                                {transferredSessions.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center py-12 gap-2">
+                                        <CheckCircle2 className="h-8 w-8 text-emerald-200" />
+                                        <p className="text-sm text-slate-400">Aucun transfert en attente</p>
+                                        <p className="text-xs text-slate-300">Tout est sous contrôle</p>
                                     </div>
                                 ) : (
-                                    messages.map((m) => (
-                                        <div
-                                            key={m.id}
-                                            className={`flex ${m.role === "user" ? "justify-start" : "justify-end"}`}
-                                        >
-                                            <div
-                                                className={`max-w-[72%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
-                                                    m.role === "user"
-                                                        ? "bg-white border border-slate-200 text-slate-700"
-                                                        : m.role === "sav"
-                                                        ? "bg-emerald-600 text-white"
-                                                        : "bg-indigo-600 text-white"
-                                                }`}
-                                            >
-                                                <div className="text-[10px] uppercase tracking-widest opacity-70 font-medium mb-1">
-                                                    {m.role === "user" ? "Client" : m.role === "sav" ? "Agent" : "IA"}
-                                                </div>
-                                                <div className="leading-relaxed">{m.content}</div>
-                                                <div className="mt-1.5 text-[10px] opacity-60 text-right">{m.createdAt}</div>
+                                    transferredSessions.map((s) => (
+                                        <div key={s.id} className="px-5 py-3 flex items-center gap-3">
+                                            <div className="w-9 h-9 rounded-full bg-indigo-50 flex items-center justify-center flex-shrink-0 text-xs font-bold text-indigo-600 border-2 border-indigo-100">
+                                                {s.username.charAt(0).toUpperCase()}
                                             </div>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="text-sm font-medium text-slate-800">{s.username}</div>
+                                                <div className="text-xs text-slate-400 truncate">{s.title || "Sans titre"}</div>
+                                            </div>
+                                            {s.transfer_reason && (
+                                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${REASON_STYLES[s.transfer_reason] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                                                    {REASON_LABELS[s.transfer_reason] ?? s.transfer_reason}
+                                                </span>
+                                            )}
+                                            <span className="text-xs text-slate-400 flex-shrink-0">#{s.id}</span>
                                         </div>
                                     ))
                                 )}
                             </div>
+                        </div>
 
-                            <div className="flex gap-2">
-                                <Input
-                                    value={reply}
-                                    onChange={(event) => setReply(event.target.value)}
-                                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleReply() } }}
-                                    placeholder={selectedSession ? "Écrire une réponse..." : "Sélectionne une session d'abord..."}
-                                    disabled={!selectedSession}
-                                    className="flex-1 bg-slate-50 border-slate-200 focus-visible:ring-indigo-500/30 placeholder:text-slate-400"
-                                />
-                                <Button
-                                    onClick={handleReply}
-                                    disabled={!selectedSession || !reply.trim()}
-                                    className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 px-5"
-                                >
-                                    <Send className="h-4 w-4" />
-                                    Envoyer
-                                </Button>
+                        {/* Quick navigation */}
+                        <div className="space-y-5">
+                            <Link href="/analytics" className="block group">
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 hover:border-indigo-200 hover:shadow-md transition-all">
+                                    <div className="flex items-center gap-3 mb-3">
+                                        <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
+                                            <BarChart2 className="h-5 w-5 text-indigo-600" />
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-sm font-semibold text-slate-800">Analytique</p>
+                                            <p className="text-xs text-slate-400">Performance IA &amp; métriques</p>
+                                        </div>
+                                        <ArrowRight className="h-4 w-4 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                                    </div>
+                                </div>
+                            </Link>
+                            <Link href="/knowledge-base" className="block group">
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 hover:border-emerald-200 hover:shadow-md transition-all">
+                                    <div className="flex items-center gap-3 mb-3">
+                                        <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
+                                            <BookOpen className="h-5 w-5 text-emerald-600" />
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-sm font-semibold text-slate-800">Base de connaissances</p>
+                                            <p className="text-xs text-slate-400">Gérer les sources IA</p>
+                                        </div>
+                                        <ArrowRight className="h-4 w-4 text-slate-300 group-hover:text-emerald-500 transition-colors" />
+                                    </div>
+                                </div>
+                            </Link>
+                            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center">
+                                        <TrendingUp className="h-5 w-5 text-violet-600" />
+                                    </div>
+                                    <p className="text-sm font-semibold text-slate-800">Résumé</p>
+                                </div>
+                                <div className="space-y-2.5">
+                                    <div className="flex items-center justify-between text-sm">
+                                        <span className="text-slate-500">Clients</span>
+                                        <span className="font-semibold text-slate-700">{users.length}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-sm">
+                                        <span className="text-slate-500">Agents SAV</span>
+                                        <span className="font-semibold text-slate-700">{savUsers.length}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-sm">
+                                        <span className="text-slate-500">Transferts en attente</span>
+                                        <span className="font-semibold text-amber-600">{transferredSessions.length}</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -905,6 +1049,180 @@ export default function DashboardPage() {
                 </AlertDialogContent>
             </AlertDialog>
             </>
+        )
+    }
+
+    if (role === "sav") {
+        return (
+            <div className="flex h-full bg-slate-50/30">
+                {/* Queue sidebar */}
+                <div className="w-80 flex-shrink-0 border-r border-slate-200 bg-white flex flex-col">
+                    <div className="h-16 px-5 flex items-center gap-3 border-b border-slate-100 shrink-0">
+                        <div className="w-9 h-9 rounded-lg bg-emerald-600 flex items-center justify-center shadow-sm">
+                            <Headphones className="h-5 w-5 text-white" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <h1 className="text-sm font-bold text-slate-900 truncate">File d&apos;attente</h1>
+                            <p className="text-[11px] text-slate-500">{transferredSessions.length} en attente</p>
+                        </div>
+                        <Badge className="bg-amber-50 text-amber-600 border-amber-100 text-xs font-semibold">{transferredSessions.length}</Badge>
+                    </div>
+                    <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
+                        {isLoadingSav ? (
+                            <div className="px-5 py-12 text-center text-sm text-slate-400">Chargement...</div>
+                        ) : transferredSessions.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-40 gap-2 px-5">
+                                <Headphones className="h-8 w-8 text-slate-200" />
+                                <p className="text-sm text-slate-400">Aucun transfert</p>
+                            </div>
+                        ) : (
+                            transferredSessions.map((s) => (
+                                <button
+                                    key={s.id}
+                                    onClick={() => handleSavSelectSession(s)}
+                                    className={`w-full text-left px-4 py-3 transition-colors ${savSelectedSession?.id === s.id ? "bg-emerald-50/70 border-l-2 border-l-emerald-500" : "hover:bg-slate-50 border-l-2 border-l-transparent"}`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-9 h-9 rounded-full bg-indigo-50 flex items-center justify-center flex-shrink-0 text-xs font-bold text-indigo-600 border-2 border-indigo-100">
+                                            {s.username.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-sm font-medium text-slate-800 truncate">{s.username}</div>
+                                            <div className="text-xs text-slate-400 truncate">{s.title || "Sans titre"}</div>
+                                            <div className="flex items-center gap-1.5 mt-1">
+                                                {s.transfer_reason && (
+                                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${REASON_STYLES[s.transfer_reason] ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                                                        {REASON_LABELS[s.transfer_reason] ?? s.transfer_reason}
+                                                    </span>
+                                                )}
+                                                <span className="text-[10px] text-slate-400">#{s.id}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+
+                {/* Chat area — same theme as client conversation */}
+                <div className="flex-1 flex flex-col min-w-0">
+                    {/* Header */}
+                    <header className="h-16 border-b bg-white flex items-center justify-between px-6 shrink-0 shadow-sm">
+                        {savSelectedSession ? (
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-sm font-bold text-indigo-600 border-2 border-indigo-100">
+                                    {savSelectedSession.username.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                    <h2 className="font-bold text-sm text-slate-800">
+                                        {savSelectedSession.username} <span className="text-slate-400 font-normal ml-1">#{savSelectedSession.id}</span>
+                                    </h2>
+                                    <p className="text-[11px] font-medium flex items-center gap-1 text-amber-600">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                        Transféré — {REASON_LABELS[savSelectedSession.transfer_reason ?? ""] ?? savSelectedSession.transfer_reason ?? "–"}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center">
+                                    <Headphones className="h-5 w-5 text-emerald-600" />
+                                </div>
+                                <div>
+                                    <h2 className="font-bold text-sm text-slate-800">Support SAV</h2>
+                                    <p className="text-[11px] font-medium text-slate-400">Sélectionnez une conversation</p>
+                                </div>
+                            </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                            {savSelectedSession && (
+                                <button
+                                    onClick={() => void handleResolveSession()}
+                                    disabled={isResolving}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors text-[11px] font-bold uppercase disabled:opacity-50"
+                                >
+                                    <Bot className="h-3.5 w-3.5" />
+                                    {isResolving ? "..." : "Remettre à l'IA"}
+                                </button>
+                            )}
+                            <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50 border border-emerald-200 gap-1 text-[10px] py-1">
+                                <Headphones className="h-3 w-3" /> Agent SAV
+                            </Badge>
+                        </div>
+                    </header>
+
+                    {/* Messages */}
+                    <div className="flex-1 overflow-y-auto p-6">
+                        {!savSelectedSession ? (
+                            <div className="flex flex-col items-center justify-center h-full max-w-md mx-auto space-y-4">
+                                <div className="bg-emerald-600 w-16 h-16 rounded-2xl flex items-center justify-center shadow-xl shadow-emerald-100">
+                                    <Headphones className="h-9 w-9 text-white" />
+                                </div>
+                                <h1 className="text-2xl font-black text-slate-900 tracking-tight text-center">Espace Agent SAV</h1>
+                                <p className="text-slate-500 text-sm text-center">Sélectionnez une conversation dans la file d&apos;attente pour commencer à répondre.</p>
+                            </div>
+                        ) : savMessages.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full gap-2">
+                                <MessageSquare className="h-8 w-8 text-slate-200" />
+                                <p className="text-sm text-slate-400">Chargement des messages...</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-6 max-w-4xl mx-auto">
+                                {savMessages.map((m) => (
+                                    <div key={m.id} className={`flex ${m.role === "sav" ? "justify-end" : "justify-start"}`}>
+                                        <div className={`max-w-[80%] flex flex-col ${m.role === "sav" ? "items-end" : "items-start"}`}>
+                                            <div className={`rounded-2xl px-5 py-3 text-sm shadow-sm ${
+                                                m.role === "sav"
+                                                    ? "bg-emerald-600 text-white"
+                                                    : m.role === "user"
+                                                    ? "bg-indigo-600 text-white"
+                                                    : "bg-white border-2 border-slate-100 text-slate-700"
+                                            }`}>
+                                                {m.content}
+                                            </div>
+                                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter px-2 mt-1">
+                                                {m.role === "sav" ? "Vous" : m.role === "user" ? "Client" : "Assistant IA"} • {m.createdAt}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Input bar */}
+                    <div className="bg-white border-t border-slate-100 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
+                        <div className="p-6">
+                            <div className="max-w-4xl mx-auto">
+                                <form
+                                    onSubmit={(e) => { e.preventDefault(); void handleSavReply() }}
+                                    className="relative group"
+                                >
+                                    <Input
+                                        value={savReply}
+                                        onChange={(e) => setSavReply(e.target.value)}
+                                        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSavReply() } }}
+                                        placeholder={savSelectedSession ? "Écrire une réponse au client..." : "Sélectionnez une session d'abord..."}
+                                        disabled={!savSelectedSession}
+                                        className="h-14 pl-6 pr-24 rounded-2xl border-2 border-slate-100 focus-visible:ring-emerald-500 bg-slate-50/30 transition-all text-base"
+                                    />
+                                    <div className="absolute right-2 top-2 flex items-center gap-1">
+                                        <Button
+                                            type="submit"
+                                            disabled={!savSelectedSession || !savReply.trim()}
+                                            size="sm"
+                                            className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-100 transition-all"
+                                        >
+                                            <Send className="h-4 w-4 mr-2" /> Envoyer
+                                        </Button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         )
     }
 

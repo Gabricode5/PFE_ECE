@@ -62,7 +62,22 @@ class ChatSessionResponse(BaseModel):
     id_utilisateur: int
     title: Optional[str]
     status: str
+    transfer_reason: Optional[str] = None
     date_creation: datetime
+
+    class Config:
+        from_attributes = True
+
+class TransferRequest(BaseModel):
+    reason: str  # technique | complexe | sensible | autre
+
+class TransferredSessionResponse(BaseModel):
+    id: int
+    title: Optional[str]
+    status: str
+    transfer_reason: Optional[str]
+    date_creation: datetime
+    username: str
 
     class Config:
         from_attributes = True
@@ -77,10 +92,14 @@ class ChatMessageResponse(BaseModel):
     id_session: int
     type_envoyeur: str
     contenu: str
+    feedback: Optional[int] = None
     date_creation: datetime
 
     class Config:
         from_attributes = True
+
+class MessageFeedbackRequest(BaseModel):
+    feedback: int  # must be 1 or -1
 
 class KnowledgeIngestRequest(BaseModel):
     url: HttpUrl

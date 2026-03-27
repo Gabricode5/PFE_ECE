@@ -183,7 +183,7 @@ export function AppSidebar() {
                             </Link>
                         </Button>
 
-                        {(user.role === "admin" || user.role === "sav") && (
+                        {user.role === "admin" && (
                             <Button
                                 variant={isActive("/knowledge-base") ? "secondary" : "ghost"}
                                 asChild
@@ -199,7 +199,7 @@ export function AppSidebar() {
                 </div>
 
                 {/* 2. Section Discussions (Style ChatGPT) */}
-                {user.role !== "admin" && (
+                {user.role === "user" && (
                 <div>
                     <div className="flex items-center justify-between px-4 mb-2">
                         <h3 className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
