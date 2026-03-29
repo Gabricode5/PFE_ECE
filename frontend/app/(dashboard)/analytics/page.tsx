@@ -55,7 +55,6 @@ export default function AnalyticsPage() {
     const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
-        setIsLoading(true)
         fetch(`/api/analytics/stats?days=${days}`)
             .then(r => r.ok ? r.json() : null)
             .then(json => { if (json) setData(json) })
@@ -84,7 +83,10 @@ export default function AnalyticsPage() {
                     {PERIODS.map(({ label, days: d }) => (
                         <Button
                             key={d}
-                            onClick={() => setDays(d)}
+                            onClick={() => {
+                                setIsLoading(true)
+                                setDays(d)
+                            }}
                             variant={days === d ? "secondary" : "ghost"}
                             size="sm"
                             className={`rounded-md ${days === d ? "shadow-sm bg-background text-foreground" : "hover:bg-background text-muted-foreground hover:text-foreground"}`}

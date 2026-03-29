@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import {
     LayoutDashboard,
@@ -312,7 +312,6 @@ export function AppSidebar() {
             <div className="p-4 border-t border-sidebar-border">
                 <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-sidebar-accent cursor-default group transition-all">
                     <Avatar className="h-9 w-9 border border-sidebar-border">
-                        <AvatarImage src="/avatar-placeholder.png" alt={user.username} />
                         <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
                             {user.initials}
                         </AvatarFallback>

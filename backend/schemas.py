@@ -11,7 +11,6 @@ class UserCreate(BaseModel):
     password: str
     prenom: Optional[str] = None
     nom: Optional[str] = None
-    id_role: Optional[int] = 0
 
     class Config:
         from_attributes = True

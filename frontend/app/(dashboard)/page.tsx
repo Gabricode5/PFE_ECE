@@ -85,13 +85,6 @@ type MessageItem = {
     createdAt: string
 }
 
-type BackendMessageItem = {
-    id: number | string
-    type_envoyeur: "user" | "ai" | "sav"
-    contenu?: string | null
-    date_creation?: string | null
-}
-
 export default function DashboardPage() {
     const router = useRouter()
     const [role, setRole] = useState("user")
@@ -101,8 +94,6 @@ export default function DashboardPage() {
     const [selectedUser, setSelectedUser] = useState<UserItem | null>(null)
     const [sessions, setSessions] = useState<SessionItem[]>([])
     const [selectedSession, setSelectedSession] = useState<SessionItem | null>(null)
-    const [messages, setMessages] = useState<MessageItem[]>([])
-    const [reply, setReply] = useState("")
     const [adminError, setAdminError] = useState<string | null>(null)
     const [isLoadingAdmin, setIsLoadingAdmin] = useState(false)
     const [updatingRoleUserId, setUpdatingRoleUserId] = useState<number | null>(null)
@@ -404,7 +395,6 @@ export default function DashboardPage() {
                 setSelectedUser(null)
                 setSelectedSession(null)
                 setSessions([])
-                setMessages([])
             }
 
             await loadAdminData()
@@ -419,7 +409,6 @@ export default function DashboardPage() {
     const handleSelectUser = async (userItem: UserItem) => {
         setSelectedUser(userItem)
         setSelectedSession(null)
-        setMessages([])
         setAdminError(null)
 
         try {
@@ -442,33 +431,6 @@ export default function DashboardPage() {
 
     const handleSelectSession = async (sessionItem: SessionItem) => {
         setSelectedSession(sessionItem)
-        setMessages([])
-        setAdminError(null)
-
-        try {
-            const response = await fetch(`/api/messages?session_id=${sessionItem.id}`)
-            if (!response.ok) {
-                if (response.status === 401) {
-                    setAdminError("Session expirée. Veuillez vous reconnecter.")
-                    return
-                }
-                setAdminError("Impossible de charger les messages.")
-                return
-            }
-            const data = await response.json()
-            const normalized: MessageItem[] = (data as BackendMessageItem[]).map((item) => ({
-                id: String(item.id),
-                role: item.type_envoyeur,
-                content: item.contenu ?? "",
-                createdAt: item.date_creation
-                    ? new Date(item.date_creation).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-                    : ""
-            }))
-            setMessages(normalized)
-        } catch (error) {
-            console.error("Erreur messages :", error)
-            setAdminError("Erreur réseau.")
-        }
     }
 
     const handleCloseSession = async (sessionItem: SessionItem) => {
@@ -506,48 +468,6 @@ export default function DashboardPage() {
             setUserError("Erreur réseau.")
         } finally {
             setClosingSessionId(null)
-        }
-    }
-
-    const handleReply = async () => {
-        const trimmed = reply.trim()
-        if (!trimmed || !selectedSession) return
-
-        try {
-            const response = await fetch("/api/messages", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    id_session: selectedSession.id,
-                    type_envoyeur: "sav",
-                    contenu: trimmed
-                })
-            })
-            if (!response.ok) {
-                if (response.status === 401) {
-                    setAdminError("Session expirée. Veuillez vous reconnecter.")
-                    return
-                }
-                const data = await response.json()
-                setAdminError(data?.detail || "Impossible d'envoyer la réponse.")
-                return
-            }
-            const data = await response.json()
-            const newMessage: MessageItem = {
-                id: String(data.id),
-                role: "sav",
-                content: data.contenu ?? trimmed,
-                createdAt: data.date_creation
-                    ? new Date(data.date_creation).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-                    : ""
-            }
-            setMessages((prev) => [...prev, newMessage])
-            setReply("")
-        } catch (error) {
-            console.error("Erreur reply :", error)
-            setAdminError("Erreur réseau.")
         }
     }
 
