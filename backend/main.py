@@ -1219,7 +1219,8 @@ def get_analytics_stats(
     # Build day → {IA, Humain} map
     day_map: dict = {}
     for row in daily_rows:
-        label = row.day.strftime("%-d %b") if row.day else "?"
+        # Windows' strftime doesn't support "%-d". Use .day for non-padded day.
+        label = f"{row.day.day} {row.day.strftime('%b')}" if row.day else "?"
         if label not in day_map:
             day_map[label] = {"name": label, "IA": 0, "Humain": 0}
         if row.type_envoyeur == "ai":
