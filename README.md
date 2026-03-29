@@ -1,147 +1,119 @@
-# 🚀 Guide de Démarrage Rapide
+# SmartTicket
 
-## 🐳 Commandes Docker
+Application de gestion de tickets avec :
+
+- un frontend `Next.js`
+- un backend `FastAPI`
+- une base `PostgreSQL` avec `pgvector`
+- des services Docker pour l'environnement local
+
+## Structure
+
+```text
+frontend/   Interface utilisateur Next.js
+backend/    API FastAPI, modèles et ingestion
+docs/       Documents de projet
+```
+
+## Démarrage rapide
+
+### 1. Pré-requis
+
+- Docker et Docker Compose
+- un fichier `.env` à la racine pour le backend
+
+### 2. Lancer le projet
 
 ```bash
-# Démarrer le service Docker
-sudo systemctl start docker
+docker compose up -d --build
+```
 
-# Activer le démarrage automatique au boot
-sudo systemctl enable docker
+Pour suivre les logs :
 
-# Lancer les services en arrière-plan
-docker compose up -d
-
-# Lancer les services avec affichage des logs en direct
+```bash
 docker compose up
+```
 
-docker compose up -d --build
+Pour arrêter les services :
 
-# ⚠️ Arrêter les services et supprimer les volumes persistants (efface la base de données et les modèles IA)
+```bash
+docker compose down
+```
+
+Pour arrêter les services et supprimer les données persistantes :
+
+```bash
 docker compose down -v
+```
 
-# Reconstruire les images et redémarrer les services
+Attention : `docker compose down -v` supprime notamment les données PostgreSQL persistées.
+
+## Services disponibles
+
+| Service | URL | Description |
+|---|---|---|
+| Frontend | [http://localhost:3005](http://localhost:3005) | Interface utilisateur |
+| Backend API | [http://localhost:8000](http://localhost:8000) | API FastAPI |
+| Swagger | [http://localhost:8000/docs](http://localhost:8000/docs) | Documentation interactive |
+| Open WebUI | [http://localhost:3002](http://localhost:3002) | Interface de test pour Ollama |
+| pgAdmin | [http://localhost:5050](http://localhost:5050) | Administration PostgreSQL |
+| Ollama | [http://localhost:11434](http://localhost:11434) | API du moteur LLM |
+
+Identifiants `pgAdmin` par défaut :
+
+- email : `admin@admin.com`
+- mot de passe : `admin`
+
+## Base de données PostgreSQL
+
+Paramètres de connexion pour `pgAdmin` ou un client SQL :
+
+| Paramètre | Valeur |
+|---|---|
+| Host | `postgres` |
+| Port | `5432` |
+| Database | `ticketdb` |
+| Username | `admin` |
+| Password | `Password1234` |
+
+Le nom de connexion affiché dans votre client peut être choisi librement.
+
+## Commandes utiles
+
+Reconstruire les images :
+
+```bash
 docker compose up -d --build
+```
 
-# Lister les modèles téléchargés (ex: mistral-small, nomic-embed-text)
+Lister les modèles Ollama installés :
+
+```bash
 docker exec -it ticket-ai-ollama ollama list
+```
 
-# Pour forcer ollama à relancer son script de démarage (si nouveau model)
+Relancer uniquement le service Ollama :
+
+```bash
 docker compose up -d --force-recreate ollama
 ```
 
----
+## Développement frontend
 
-## 🔄 Commandes Git
-
-```bash
-# Récupérer des fichiers depuis une autre branche
-git checkout frontend
-git checkout master -- .gitignore
-
-# Fusionner une branche (ex: backend)
-git merge backend
-```
-
----
-
-## 📦 Installation Frontend (npm)
+Si vous travaillez directement dans `frontend/` sans Docker :
 
 ```bash
-# Se placer dans le dossier du frontend
 cd frontend
-
-# Installer npm (si nécessaire)
-sudo apt install npm
-
-# Installer les dépendances
 npm install
+npm run dev
 ```
 
----
+## Déploiement
 
-## 🌍 Mise en Production
-Utiliser une **GitHub Action** + **RCD** pour le déploiement sur Azure.
+Le dépôt contient un fichier [`render.yaml`](./render.yaml) pour le déploiement des services.
 
----
+## Notes
 
-## 🔗 Liens d’Accès
-
-| Service        | URL                              | Identifiants                     |
-|----------------|----------------------------------|----------------------------------|
-| Frontend       | [http://localhost:3005](http://localhost:3005) | Interface utilisateur            |
-| Backend API    | [http://localhost:8000](http://localhost:8000) / [http://localhost:8000/docs](http://localhost:8000/docs) | Documentation Swagger/Redoc |
-| Open WebUI     | [http://localhost:3002](http://localhost:3002) | Interface pour Ollama            |
-| pgAdmin        | [http://localhost:5050](http://localhost:5050) | Login: `admin@admin.com` / Pass: `admin` |
-| Ollama         | [http://localhost:11434](http://localhost:11434) | API Ollama                       |
-
----
-
-## 🗄️ Connexion à la Base de Données PostgreSQL
-
-| Paramètre               | Valeur         |
-|-------------------------|----------------|
-| Name                    | (au choix)     |
-| Host name/address       | `postgres`     |
-| Port                    | `5432`         |
-| Maintenance database    | `ticketdb`     |
-| Username                | `admin`        |
-| Password                | `Password1234` |
-
-
----
-
----
-
----
-
-
-
-# Démarrer le service
-sudo systemctl start docker
-# Activer le démarrage automatique au boot
-sudo systemctl enable docker
-# Lancement en mode arriere-plan
-docker compose up -d
-# Lancement avec affichage des logs en direct
-docker compose up
-# Arret des services et suppression des volumes persistants
-# Attention : Cette action efface la base de donnees et les modeles IA
-docker compose down -v
-# Reconstruction des images et redemarrage des services
-docker compose up -d --build
-# Liste des modeles telecharges (mistral-small, nomic-embed-text)
-docker exec -it ticket-ai-ollama ollama list
-
-
-# pour récupérer des fichiers de d'autre branche
-git checkout frontend
-git checkout master -- .gitignore
-
-# pour récupérer toute une branche
-git merge backend
-
-pour installer npm sur le frontend
-aller au :
-- cd fronten
-- sudo apt install npm
-- npm install
-
-
-utiliser un github action + rcd pour mise en prod sur azure
-
-#liens d'accès
-Frontend : http://localhost:3005  L'interface utilisateur de votre projet.
-Backend API : http://localhost:8000 / http://localhost:8000/docs L'API FastAPI/Node (docs souvent sur /docs).
-Open WebUI : http://localhost:3002  L'interface pour tester Ollama directement.
-pgAdmin : http://localhost:5050  Login: admin@admin.com / Pass: admin.
-Ollama : http://localhost:11434/
-
-
-#connexion de la bdd à postgre
-- Name : ce que vous voulez
-- Host name/address : postgres
-- Port : 5432
-- Maintenance database : ticketdb
-- Username : admin
-- Password : Password1234
+- Le frontend écoute sur le port `3005` en local.
+- Le backend écoute sur le port `8000`.
+- L'initialisation de la base est gérée par [`backend/db/init-db.sql`](./backend/db/init-db.sql).
