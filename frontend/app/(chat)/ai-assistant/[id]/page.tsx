@@ -314,8 +314,8 @@ export default function AiAssistantPage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="icon" className="text-slate-400"><Search className="h-4 w-4" /></Button>
-                    <Button variant="ghost" size="icon" className="text-slate-400"><MoreVertical className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="text-slate-400" aria-label="Rechercher dans la conversation"><Search className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" className="text-slate-400" aria-label="Plus d'options"><MoreVertical className="h-4 w-4" /></Button>
                 </div>
             </header>
 
@@ -384,7 +384,7 @@ export default function AiAssistantPage() {
                                                     type="button"
                                                     disabled={m.feedback !== null && m.feedback !== undefined}
                                                     onClick={() => handleFeedback(m.id, 1)}
-                                                    title="Bonne réponse"
+                                                    aria-label="Marquer comme bonne réponse"
                                                     className={`p-0.5 rounded transition-colors disabled:cursor-default ${m.feedback === 1 ? "text-indigo-600" : "text-slate-300 hover:text-slate-500"}`}
                                                 >
                                                     <ThumbsUp className={`h-3.5 w-3.5 ${m.feedback === 1 ? "fill-indigo-600" : ""}`} />
@@ -393,7 +393,7 @@ export default function AiAssistantPage() {
                                                     type="button"
                                                     disabled={m.feedback !== null && m.feedback !== undefined}
                                                     onClick={() => handleFeedback(m.id, -1)}
-                                                    title="Mauvaise réponse"
+                                                    aria-label="Marquer comme mauvaise réponse"
                                                     className={`p-0.5 rounded transition-colors disabled:cursor-default ${m.feedback === -1 ? "text-red-500" : "text-slate-300 hover:text-slate-500"}`}
                                                 >
                                                     <ThumbsDown className={`h-3.5 w-3.5 ${m.feedback === -1 ? "fill-red-500" : ""}`} />
@@ -424,7 +424,7 @@ export default function AiAssistantPage() {
                         <div className="max-w-4xl mx-auto">
                             <div className="flex items-center justify-between mb-2">
                                 <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Pourquoi souhaitez-vous parler à un agent ?</span>
-                                <button onClick={() => setShowTransferPanel(false)} className="text-slate-400 hover:text-slate-600">
+                                <button onClick={() => setShowTransferPanel(false)} aria-label="Fermer le panneau de transfert" className="text-slate-400 hover:text-slate-600">
                                     <X className="h-4 w-4" />
                                 </button>
                             </div>
