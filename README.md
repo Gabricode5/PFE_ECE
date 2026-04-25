@@ -117,3 +117,39 @@ Le dépôt contient un fichier [`render.yaml`](./render.yaml) pour le déploieme
 - Le frontend écoute sur le port `3005` en local.
 - Le backend écoute sur le port `8000`.
 - L'initialisation de la base est gérée par [`backend/db/init-db.sql`](./backend/db/init-db.sql).
+
+## Conformité RGPD
+
+### Données collectées
+
+| Donnée | Table | Finalité |
+|---|---|---|
+| Email | `utilisateur` | Authentification, identifiant unique |
+| Username | `utilisateur` | Affichage, identification interne |
+| Prénom / Nom | `utilisateur` | Optionnels, personnalisation de l'interface |
+| Mot de passe | `utilisateur` | Hashé (bcrypt) — jamais stocké en clair |
+| Messages de chat | `chat_messages` | Historique de la conversation SAV |
+
+Aucune donnée n'est transmise à des tiers, à l'exception des messages envoyés à l'API Mistral pour la génération de réponses IA.
+
+### Mesures de sécurité techniques
+
+| Mesure | Implémentation |
+|---|---|
+| Hachage des mots de passe | bcrypt via `passlib` (backend) et `pgcrypto` (SQL) |
+| Token d'authentification | JWT signé avec expiration configurable (`ACCESS_TOKEN_EXPIRE_MINUTES`) |
+| Cookie sécurisé | `httpOnly`, `SameSite=strict` — protège contre le vol de session (XSS) |
+| Suppression en cascade | `ON DELETE CASCADE` sur toutes les clés étrangères — la suppression d'un compte efface toutes ses données |
+| Contrôle d'accès | Rôles `user` / `sav` / `admin` — chaque route vérifie les droits avant d'exécuter |
+| Secrets externalisés | Variables d'environnement via `.env` (non commité dans git) |
+
+### Droits des utilisateurs
+
+- **Droit d'accès** : `GET /me` retourne les données du compte connecté.
+- **Droit de rectification** : `PUT /me` permet de modifier username, email, prénom, nom.
+- **Droit à l'effacement** : `DELETE /users/{id}` supprime le compte et toutes ses données associées (messages, sessions) grâce aux cascades SQL.
+- **Consentement** : case à cocher obligatoire lors de l'inscription.
+
+### Conservation des données
+
+Les données sont conservées tant que le compte utilisateur existe. Aucune suppression automatique n'est configurée. La suppression du compte (`DELETE /users/{id}`) efface immédiatement toutes les données associées.
