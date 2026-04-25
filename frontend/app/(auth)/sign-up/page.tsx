@@ -19,10 +19,16 @@ export default function SignUpPage() {
 
     const router = useRouter()
     const [error, setError] = useState("")
+    const [rgpdAccepted, setRgpdAccepted] = useState(false)
 
     async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault() // Empêche le rechargement de la page
         setError("")
+
+        if (!rgpdAccepted) {
+            setError("Vous devez accepter la politique de confidentialité pour créer un compte.")
+            return
+        }
 
         const formData = new FormData(event.currentTarget)
         const data = Object.fromEntries(formData)
@@ -92,7 +98,24 @@ export default function SignUpPage() {
                         <Label htmlFor="name">Nom</Label>
                         <Input id="name" name="nom" placeholder="Dupont" required />
                     </div>
-                    <Button type="submit" className="w-full">
+                    <div className="flex items-start gap-3 pt-2">
+                        <input
+                            id="rgpd"
+                            type="checkbox"
+                            checked={rgpdAccepted}
+                            onChange={(e) => setRgpdAccepted(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+                        />
+                        <Label htmlFor="rgpd" className="text-sm font-normal leading-snug cursor-pointer">
+                            J&apos;accepte que mes données personnelles (nom, email) soient
+                            traitées afin de gérer mon compte, conformément au{" "}
+                            <a href="https://www.cnil.fr/fr/rgpd-de-quoi-parle-t-on" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-primary">
+                                RGPD
+                            </a>
+                            . Elles ne seront pas transmises à des tiers.
+                        </Label>
+                    </div>
+                    <Button type="submit" className="w-full" disabled={!rgpdAccepted}>
                         S&apos;inscrire
                     </Button>
                 </CardContent>
