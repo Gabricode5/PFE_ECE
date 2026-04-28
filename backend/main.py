@@ -112,6 +112,17 @@ from sqlalchemy import text as _text
 
 @app.on_event("startup")
 def run_migrations():
+    from database import Base
+    with _engine.connect() as conn:
+        conn.execute(_text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
+    Base.metadata.create_all(bind=_engine)
+    from database import SessionLocal as _SessionLocal
+    with _SessionLocal() as session:
+        for role_name in ["user", "ai", "sav", "admin"]:
+            if not session.query(models.Role).filter_by(nom_role=role_name).first():
+                session.add(models.Role(nom_role=role_name))
+        session.commit()
     with _engine.connect() as conn:
         conn.execute(_text(
             "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS feedback INTEGER"
