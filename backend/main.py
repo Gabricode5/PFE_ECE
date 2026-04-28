@@ -164,10 +164,14 @@ def read_root():
 
 @app.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # 1. Vérifier si l'email existe déjà
+    # 1. Vérifier si l'email ou le username existe déjà
     existing_user = db.query(models.Utilisateur).filter(models.Utilisateur.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Cet email est déjà utilisé.")
+
+    existing_username = db.query(models.Utilisateur).filter(models.Utilisateur.username == user.username).first()
+    if existing_username:
+        raise HTTPException(status_code=400, detail="Ce username est déjà utilisé.")
 
     # 2. Hacher le mot de passe
     hashed_password = pwd_context.hash(user.password)
