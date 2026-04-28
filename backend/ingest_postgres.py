@@ -6,6 +6,7 @@ import re
 import requests
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse, urljoin
+from urllib.robotparser import RobotFileParser
 
 from mistral_client import embed_texts
 import logging
@@ -103,6 +104,19 @@ def _same_domain(base_url: str, candidate_url: str) -> bool:
     base_domain = urlparse(base_url).netloc.lower()
     candidate_domain = urlparse(candidate_url).netloc.lower()
     return base_domain == candidate_domain
+
+
+def _get_robots_parser(base_url: str) -> RobotFileParser | None:
+    robots_url = urljoin(base_url, "/robots.txt")
+    parser = RobotFileParser()
+    parser.set_url(robots_url)
+    try:
+        parser.read()
+        logger.info("robots.txt chargé depuis %s", robots_url)
+        return parser
+    except Exception as e:
+        logger.warning("Impossible de lire robots.txt depuis %s : %s", robots_url, e)
+        return None
 
 
 def _find_sitemap_url(base_url: str) -> str | None:
@@ -206,25 +220,61 @@ def _load_documents_from_urls(urls: list[str]) -> list:
             print(f"Page ignorée (erreur): {page_url} -> {e}")
     return docs
 
-def ingest_to_postgres(url: str | None = None, category: str | None = None):
+def ingest_to_postgres(url: str | None = None, category: str | None = None, on_progress=None):
+    def _progress(step: str, **kwargs):
+        if on_progress:
+            on_progress({"step": step, **kwargs})
+
     # 2. Préparer l'URL et la catégorie
     source_url = url or DEFAULT_URL
     category_value = (category or DEFAULT_CATEGORY).strip() or DEFAULT_CATEGORY
     print(f"Début de l'ingestion vers PostgreSQL depuis : {source_url}")
 
-    # 3. Essayer le sitemap XML, sinon fallback sur l'URL de base
+    # 3. Vérification du robots.txt
+    _progress("checking_robots")
+    robots = _get_robots_parser(source_url)
+    user_agent = DEFAULT_HEADERS["User-Agent"]
+    robots_status = "not_found"
+    if robots is not None:
+        if not robots.can_fetch(user_agent, source_url):
+            _progress("robots_blocked", robots_status="blocked")
+            raise ValueError(f"Le robots.txt interdit le scraping de cette URL : {source_url}")
+        robots_status = "allowed"
+        print(f"robots.txt : scraping autorisé pour {source_url}")
+    else:
+        print("robots.txt introuvable ou illisible, on continue sans restriction.")
+
+    # 4. Essayer le sitemap XML, sinon fallback sur l'URL de base
+    _progress("collecting_urls", robots_status=robots_status)
     urls_to_scrape = _collect_urls_from_sitemap(source_url)
     if not urls_to_scrape:
         urls_to_scrape = [source_url]
-    print(f"Nombre d'URLs à scraper: {len(urls_to_scrape)}")
+    urls_found = len(urls_to_scrape)
 
-    # 4. Charger les pages trouvées
+    # Filtrer les URLs bloquées par robots.txt
+    if robots is not None:
+        allowed = [u for u in urls_to_scrape if robots.can_fetch(user_agent, u)]
+        blocked_count = urls_found - len(allowed)
+        if blocked_count:
+            print(f"robots.txt : {blocked_count} URL(s) bloquée(s) et ignorées.")
+        urls_to_scrape = allowed
+    urls_allowed = len(urls_to_scrape)
+
+    if not urls_to_scrape:
+        raise ValueError("Toutes les URLs sont bloquées par le robots.txt du site.")
+
+    print(f"Nombre d'URLs à scraper: {urls_allowed}")
+    _progress("scraping", robots_status=robots_status, urls_found=urls_found, urls_allowed=urls_allowed)
+
+    # 5. Charger les pages trouvées
     docs = _load_documents_from_urls(urls_to_scrape)
     if not docs:
         raise ValueError("Aucun contenu récupéré. Vérifie l'URL ou les permissions du site.")
-    print(f"Pages chargées avec succès: {len(docs)} document(s).")
+    urls_scraped = len(docs)
+    print(f"Pages chargées avec succès: {urls_scraped} document(s).")
+    _progress("embedding", robots_status=robots_status, urls_found=urls_found, urls_allowed=urls_allowed, urls_scraped=urls_scraped)
 
-    # 5. Découpage du texte (Chunking)
+    # 6. Découpage du texte (Chunking)
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
     chunks = text_splitter.split_documents(docs)
     for chunk in chunks:
@@ -241,7 +291,7 @@ def ingest_to_postgres(url: str | None = None, category: str | None = None):
         chunks = chunks[:MAX_KB_CHUNKS]
     print(f"✂️ {len(chunks)} morceaux créés.")
 
-    # 6. Insertion directe dans la table SQL custom knowledge_base
+    # 7. Insertion directe dans la table SQL custom knowledge_base
     print("Connexion à Postgres et insertion dans knowledge_base...")
     db = SessionLocal()
     inserted = 0
