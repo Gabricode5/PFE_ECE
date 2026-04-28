@@ -81,6 +81,42 @@ def _is_allowed_url(page_url: str) -> bool:
     return not lowered_path.endswith(NON_HTML_EXTENSIONS)
 
 
+def analyze_robots_and_sitemap(base_url: str) -> dict:
+    """Lit robots.txt + sitemap et retourne le nombre d'URLs autorisées vs bloquées."""
+    import urllib.robotparser
+
+    rp = urllib.robotparser.RobotFileParser()
+    robots_url = urljoin(base_url, "/robots.txt")
+    robots_found = False
+    try:
+        rp.set_url(robots_url)
+        rp.read()
+        robots_found = True
+    except Exception:
+        pass
+
+    sitemap_urls = _collect_urls_from_sitemap(base_url)
+    sitemap_found = bool(sitemap_urls)
+    if not sitemap_urls:
+        sitemap_urls = [base_url]
+
+    allowed: list[str] = []
+    blocked: list[str] = []
+    for u in sitemap_urls:
+        if robots_found and not rp.can_fetch("*", u):
+            blocked.append(u)
+        else:
+            allowed.append(u)
+
+    return {
+        "robots_found": robots_found,
+        "sitemap_found": sitemap_found,
+        "total": len(sitemap_urls),
+        "allowed": len(allowed),
+        "blocked": len(blocked),
+    }
+
+
 def _extract_loc_urls_from_xml(xml_text: str) -> list[str]:
     # Cette fonction lit un XML de type sitemap et récupère toutes les balises <loc>
     urls: list[str] = []
@@ -182,10 +218,13 @@ def _collect_urls_from_sitemap(base_url: str) -> list[str]:
     return unique_urls[:MAX_SITEMAP_URLS]
 
 
-def _load_documents_from_urls(urls: list[str]) -> list:
+def _load_documents_from_urls(urls: list[str], job_state: dict | None = None) -> list:
     # Cette fonction charge les pages web pour LangChain
     docs = []
-    for page_url in urls:
+    for i, page_url in enumerate(urls):
+        if job_state is not None:
+            job_state["urls_done"] = i
+            job_state["current_url"] = page_url
         if not _is_allowed_url(page_url):
             print(f"Page ignorée (extension non textuelle): {page_url}")
             continue
@@ -204,9 +243,12 @@ def _load_documents_from_urls(urls: list[str]) -> list:
                 docs.append(doc)
         except Exception as e:
             print(f"Page ignorée (erreur): {page_url} -> {e}")
+    if job_state is not None:
+        job_state["urls_done"] = len(urls)
+        job_state["current_url"] = None
     return docs
 
-def ingest_to_postgres(url: str | None = None, category: str | None = None):
+def ingest_to_postgres(url: str | None = None, category: str | None = None, job_state: dict | None = None):
     # 2. Préparer l'URL et la catégorie
     source_url = url or DEFAULT_URL
     category_value = (category or DEFAULT_CATEGORY).strip() or DEFAULT_CATEGORY
@@ -218,8 +260,13 @@ def ingest_to_postgres(url: str | None = None, category: str | None = None):
         urls_to_scrape = [source_url]
     print(f"Nombre d'URLs à scraper: {len(urls_to_scrape)}")
 
+    if job_state is not None:
+        job_state["urls_total"] = len(urls_to_scrape)
+        job_state["urls_done"] = 0
+        job_state["current_url"] = None
+
     # 4. Charger les pages trouvées
-    docs = _load_documents_from_urls(urls_to_scrape)
+    docs = _load_documents_from_urls(urls_to_scrape, job_state=job_state)
     if not docs:
         raise ValueError("Aucun contenu récupéré. Vérifie l'URL ou les permissions du site.")
     print(f"Pages chargées avec succès: {len(docs)} document(s).")
