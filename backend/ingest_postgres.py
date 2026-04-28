@@ -84,9 +84,7 @@ def _is_allowed_url(page_url: str) -> bool:
 
 def analyze_robots_and_sitemap(base_url: str) -> dict:
     """Lit robots.txt + sitemap et retourne le nombre d'URLs autorisées vs bloquées."""
-    import urllib.robotparser
-
-    rp = urllib.robotparser.RobotFileParser()
+    rp = RobotFileParser()
     robots_url = urljoin(base_url, "/robots.txt")
     robots_found = False
     try:
@@ -262,32 +260,23 @@ def _load_documents_from_urls(urls: list[str], job_state: dict | None = None) ->
         job_state["current_url"] = None
     return docs
 
-def ingest_to_postgres(url: str | None = None, category: str | None = None, on_progress=None):
-    def _progress(step: str, **kwargs):
-        if on_progress:
-            on_progress({"step": step, **kwargs})
-
+def ingest_to_postgres(url: str | None = None, category: str | None = None, job_state: dict | None = None):
     # 2. Préparer l'URL et la catégorie
     source_url = url or DEFAULT_URL
     category_value = (category or DEFAULT_CATEGORY).strip() or DEFAULT_CATEGORY
     print(f"Début de l'ingestion vers PostgreSQL depuis : {source_url}")
 
     # 3. Vérification du robots.txt
-    _progress("checking_robots")
     robots = _get_robots_parser(source_url)
     user_agent = DEFAULT_HEADERS["User-Agent"]
-    robots_status = "not_found"
     if robots is not None:
         if not robots.can_fetch(user_agent, source_url):
-            _progress("robots_blocked", robots_status="blocked")
             raise ValueError(f"Le robots.txt interdit le scraping de cette URL : {source_url}")
-        robots_status = "allowed"
         print(f"robots.txt : scraping autorisé pour {source_url}")
     else:
         print("robots.txt introuvable ou illisible, on continue sans restriction.")
 
     # 4. Essayer le sitemap XML, sinon fallback sur l'URL de base
-    _progress("collecting_urls", robots_status=robots_status)
     urls_to_scrape = _collect_urls_from_sitemap(source_url)
     if not urls_to_scrape:
         urls_to_scrape = [source_url]
@@ -300,21 +289,22 @@ def ingest_to_postgres(url: str | None = None, category: str | None = None, on_p
         if blocked_count:
             print(f"robots.txt : {blocked_count} URL(s) bloquée(s) et ignorées.")
         urls_to_scrape = allowed
-    urls_allowed = len(urls_to_scrape)
 
     if not urls_to_scrape:
         raise ValueError("Toutes les URLs sont bloquées par le robots.txt du site.")
 
-    print(f"Nombre d'URLs à scraper: {urls_allowed}")
-    _progress("scraping", robots_status=robots_status, urls_found=urls_found, urls_allowed=urls_allowed)
+    print(f"Nombre d'URLs à scraper: {len(urls_to_scrape)}")
+
+    if job_state is not None:
+        job_state["urls_total"] = len(urls_to_scrape)
+        job_state["urls_done"] = 0
+        job_state["current_url"] = None
 
     # 5. Charger les pages trouvées
-    docs = _load_documents_from_urls(urls_to_scrape)
+    docs = _load_documents_from_urls(urls_to_scrape, job_state=job_state)
     if not docs:
         raise ValueError("Aucun contenu récupéré. Vérifie l'URL ou les permissions du site.")
-    urls_scraped = len(docs)
-    print(f"Pages chargées avec succès: {urls_scraped} document(s).")
-    _progress("embedding", robots_status=robots_status, urls_found=urls_found, urls_allowed=urls_allowed, urls_scraped=urls_scraped)
+    print(f"Pages chargées avec succès: {len(docs)} document(s).")
 
     # 6. Découpage du texte (Chunking)
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
