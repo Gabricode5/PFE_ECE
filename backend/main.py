@@ -1,6 +1,6 @@
 #déclares tes fonctions API (tes routes @app.post, @app.get, etc.).
 
-from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 import os
 from sqlalchemy.orm import Session
@@ -27,8 +27,17 @@ logger = logging.getLogger("main")
 
 app = FastAPI(
     title="CRM Intelligent API",
-    description="API pour un gestionnaire de tickets avec intégration IA",
-    version="1.0.0", 
+    description="API pour un gestionnaire de tickets avec intégration IA (Mistral AI + RAG sur pgvector).",
+    version="1.0.0",
+    openapi_tags=[
+        {"name": "IA", "description": "Endpoints exposant le modèle Mistral AI et le pipeline RAG (Retrieval-Augmented Generation)."},
+        {"name": "Base de connaissances", "description": "Indexation et gestion de la base de connaissances vectorielle (pgvector)."},
+        {"name": "Sessions", "description": "Gestion des sessions de chat et transferts vers un agent humain."},
+        {"name": "Messages", "description": "Lecture, création de messages et feedback utilisateur."},
+        {"name": "Authentification", "description": "Inscription, connexion et gestion du profil utilisateur."},
+        {"name": "Utilisateurs", "description": "Administration des comptes utilisateurs (admin uniquement)."},
+        {"name": "Analytics", "description": "Statistiques et indicateurs de performance du service IA."},
+    ],
 )
 
 cors_origins = [
@@ -48,6 +57,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+router = APIRouter(prefix="/v1")
+app.include_router(router)
 
 # Remplace ta ligne SECRET_KEY par celle-ci pour tester
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -102,7 +114,7 @@ MISTRAL_MODEL = sanitize_model_name(os.getenv("MISTRAL_MODEL", "mistral-small-la
 # Modèle d'embedding dédié.
 EMBED_MODEL = sanitize_model_name(os.getenv("EMBED_MODEL", "mistral-embed"), "mistral-embed")
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/login", auto_error=False)
 
 # Stockage simple du statut d'ingestion (dev/local).
 INGEST_JOBS: dict[str, dict] = {}
@@ -162,7 +174,7 @@ def is_admin_or_sav(user: models.Utilisateur | None):
 def read_root():
     return {"status": "Online", "message": "Le gestionnaire de tickets avec RAG est prêt"}
 
-@app.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED, tags=["Authentification"], summary="Créer un compte utilisateur")
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     # 1. Vérifier si l'email existe déjà
     existing_user = db.query(models.Utilisateur).filter(models.Utilisateur.email == user.email).first()
@@ -204,7 +216,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         "date_creation": new_user.date_creation
     }
 
-@app.post("/login")
+@router.post("/login", tags=["Authentification"], summary="Se connecter et obtenir un token JWT")
 def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     # 1. On cherche l'utilisateur avec une jointure pour charger le rôle
     user = db.query(models.Utilisateur).filter(models.Utilisateur.email == user_credentials.email).first()
@@ -248,7 +260,7 @@ def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     )
     return response
 
-@app.post("/logout")
+@router.post("/logout", tags=["Authentification"], summary="Se déconnecter (supprime le cookie)")
 def logout():
     from fastapi.responses import JSONResponse
     response = JSONResponse(content={"message": "Déconnecté"})
@@ -263,7 +275,7 @@ def logout():
     )
     return response
 
-@app.get("/me", response_model=schemas.MeResponse)
+@router.get("/me", response_model=schemas.MeResponse, tags=["Authentification"], summary="Obtenir le profil de l'utilisateur connecté")
 def read_me(current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     user = get_user_by_email(db, current_user)
     if not user:
@@ -280,7 +292,7 @@ def read_me(current_user: str = Depends(get_current_user), db: Session = Depends
         "date_creation": user.date_creation,
     }
 
-@app.put("/me", response_model=schemas.MeResponse)
+@router.put("/me", response_model=schemas.MeResponse, tags=["Authentification"], summary="Mettre à jour son profil")
 def update_me(
     payload: schemas.MeUpdateRequest,
     current_user: str = Depends(get_current_user),
@@ -334,7 +346,7 @@ def update_me(
         "date_creation": user.date_creation,
     }
 
-@app.put("/me/password")
+@router.put("/me/password", tags=["Authentification"], summary="Changer son mot de passe")
 def update_my_password(
     payload: schemas.MePasswordUpdateRequest,
     current_user: str = Depends(get_current_user),
@@ -355,7 +367,7 @@ def update_my_password(
 
     return {"message": "Mot de passe mis à jour"}
 
-@app.post("/sessions", response_model=schemas.ChatSessionResponse)
+@router.post("/sessions", response_model=schemas.ChatSessionResponse, tags=["Sessions"], summary="Créer une session de chat")
 def create_session(
     session_data: schemas.ChatSessionCreate,
     user_id: int,
@@ -385,7 +397,7 @@ def create_session(
     
     return new_session
 
-@app.get("/sessions", response_model=list[schemas.ChatSessionResponse])
+@router.get("/sessions", response_model=list[schemas.ChatSessionResponse], tags=["Sessions"], summary="Lister les sessions d'un utilisateur")
 def list_sessions(
     user_id: int,
     current_user: str = Depends(get_current_user),
@@ -411,7 +423,7 @@ def list_sessions(
     )
     return sessions
 
-@app.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Sessions"], summary="Supprimer une session")
 def delete_session(
     session_id: int,
     current_user: str = Depends(get_current_user),
@@ -434,7 +446,7 @@ def delete_session(
 
     return
 
-@app.post("/sessions/{session_id}/close", response_model=schemas.ChatSessionResponse)
+@router.post("/sessions/{session_id}/close", response_model=schemas.ChatSessionResponse, tags=["Sessions"], summary="Clôturer une session (génère un résumé IA et indexe le transcript)")
 def close_session(
     session_id: int,
     current_user: str = Depends(get_current_user),
@@ -533,7 +545,7 @@ TRANSCRIPT:
     db.refresh(session)
     return session
 
-@app.get("/users", response_model=list[schemas.UserListResponse])
+@router.get("/users", response_model=list[schemas.UserListResponse], tags=["Utilisateurs"], summary="Lister les utilisateurs (admin/sav)")
 def list_users(
     role: str | None = None,
     current_user: str = Depends(get_current_user),
@@ -560,7 +572,7 @@ def list_users(
         for user in users
     ]
 
-@app.put("/users/{user_id}/role", response_model=schemas.UserListResponse)
+@router.put("/users/{user_id}/role", response_model=schemas.UserListResponse, tags=["Utilisateurs"], summary="Modifier le rôle d'un utilisateur (admin)")
 def update_user_role(
     user_id: int,
     payload: schemas.UserRoleUpdateRequest,
@@ -599,7 +611,7 @@ def update_user_role(
         "role": target_user.role.nom_role if target_user.role else "user",
     }
 
-@app.put("/users/{user_id}", response_model=schemas.UserListResponse)
+@router.put("/users/{user_id}", response_model=schemas.UserListResponse, tags=["Utilisateurs"], summary="Modifier un utilisateur (admin)")
 def update_user_by_admin(
     user_id: int,
     payload: schemas.UserAdminUpdateRequest,
@@ -670,7 +682,7 @@ def update_user_by_admin(
         "role": target_user.role.nom_role if target_user.role else "user",
     }
 
-@app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Utilisateurs"], summary="Supprimer un utilisateur (admin)")
 def delete_user_by_admin(
     user_id: int,
     current_user: str = Depends(get_current_user),
@@ -692,7 +704,7 @@ def delete_user_by_admin(
 
     return
 
-@app.get("/messages", response_model=list[schemas.ChatMessageResponse])
+@router.get("/messages", response_model=list[schemas.ChatMessageResponse], tags=["Messages"], summary="Lister les messages d'une session")
 def list_messages(session_id: int, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     user = get_user_by_email(db, current_user)
     if not user:
@@ -713,7 +725,7 @@ def list_messages(session_id: int, current_user: str = Depends(get_current_user)
     )
     return messages
 
-@app.post("/messages", response_model=schemas.ChatMessageResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/messages", response_model=schemas.ChatMessageResponse, status_code=status.HTTP_201_CREATED, tags=["Messages"], summary="Envoyer un message dans une session")
 def create_message(message: schemas.ChatMessageCreate, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
     user = get_user_by_email(db, current_user)
     if not user:
@@ -743,7 +755,7 @@ def create_message(message: schemas.ChatMessageCreate, current_user: str = Depen
     return new_message
 
 #Route qui permet à ingest_postgres de recupérer la route dynamiquement via le front
-@app.post("/knowledge-base/ingest-url", response_model=schemas.KnowledgeIngestResponse)
+@router.post("/knowledge-base/ingest-url", response_model=schemas.KnowledgeIngestResponse, tags=["Base de connaissances"], summary="Indexer une URL ou un sitemap dans la base de connaissances")
 def ingest_knowledge_base(
     payload: schemas.KnowledgeIngestRequest,
     background_tasks: BackgroundTasks,
@@ -793,7 +805,7 @@ def ingest_knowledge_base(
         raise HTTPException(status_code=500, detail=f"Erreur ingestion: {str(e)}")
 
 
-@app.get("/knowledge-base/ingest-status")
+@router.get("/knowledge-base/ingest-status", tags=["Base de connaissances"], summary="Vérifier le statut d'un job d'indexation")
 def ingest_status(
     job_id: str,
     current_user: str = Depends(get_current_user),
@@ -803,7 +815,7 @@ def ingest_status(
     return INGEST_JOBS[job_id]
 
 
-@app.get("/knowledge-base/sources")
+@router.get("/knowledge-base/sources", tags=["Base de connaissances"], summary="Lister les sources indexées")
 def get_knowledge_sources(
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -832,7 +844,7 @@ def get_knowledge_sources(
     ]
 
 
-@app.delete("/knowledge-base/sources")
+@router.delete("/knowledge-base/sources", tags=["Base de connaissances"], summary="Supprimer une source de la base de connaissances")
 def delete_knowledge_source(
     source: str,
     current_user: str = Depends(get_current_user),
@@ -847,7 +859,7 @@ def delete_knowledge_source(
     return {"deleted": deleted, "source": source}
 
 
-@app.post("/knowledge-base/ingest-file", response_model=schemas.KnowledgeIngestResponse)
+@router.post("/knowledge-base/ingest-file", response_model=schemas.KnowledgeIngestResponse, tags=["Base de connaissances"], summary="Indexer un fichier PDF, DOCX ou TXT")
 async def ingest_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -901,7 +913,18 @@ async def ingest_file(
     }
 
 
-@app.post("/ask/stream")
+@router.post(
+    "/ask/stream",
+    tags=["IA"],
+    summary="Interroger le modèle Mistral AI avec RAG",
+    description=(
+        "Envoie une question au modèle Mistral AI. "
+        "La question est d'abord vectorisée (mistral-embed), puis les documents les plus proches "
+        "sont récupérés depuis la base de connaissances (pgvector). "
+        "Un prompt enrichi du contexte est envoyé au modèle Mistral, "
+        "et la réponse est streamée token par token en `text/plain`."
+    ),
+)
 def ask_question_stream(
     payload: schemas.AskRequest,
     current_user: str = Depends(get_current_user),
@@ -1000,7 +1023,7 @@ def ask_question_stream(
 
 # ── Message Feedback ──────────────────────────────────────────────────────────
 
-@app.patch("/messages/{message_id}/feedback")
+@router.patch("/messages/{message_id}/feedback", tags=["Messages"], summary="Noter une réponse IA (pouce haut/bas)")
 def rate_message(
     message_id: int,
     payload: schemas.MessageFeedbackRequest,
@@ -1049,7 +1072,7 @@ REASON_COLORS = {
     "autre": "#8b5cf6",
 }
 
-@app.post("/sessions/{session_id}/transfer", response_model=schemas.ChatSessionResponse)
+@router.post("/sessions/{session_id}/transfer", response_model=schemas.ChatSessionResponse, tags=["Sessions"], summary="Transférer la session vers un agent humain")
 def transfer_session(
     session_id: int,
     payload: schemas.TransferRequest,
@@ -1095,7 +1118,7 @@ def transfer_session(
     }
 
 
-@app.post("/sessions/{session_id}/resolve", response_model=schemas.ChatSessionResponse)
+@router.post("/sessions/{session_id}/resolve", response_model=schemas.ChatSessionResponse, tags=["Sessions"], summary="Rétablir l'IA après un transfert humain")
 def resolve_session(
     session_id: int,
     current_user: str = Depends(get_current_user),
@@ -1135,7 +1158,7 @@ def resolve_session(
     }
 
 
-@app.get("/sessions/transferred")
+@router.get("/sessions/transferred", tags=["Sessions"], summary="Lister les sessions en attente d'un agent humain")
 def get_transferred_sessions(
     current_user: str = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1167,7 +1190,7 @@ def get_transferred_sessions(
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
 
-@app.get("/analytics/stats")
+@router.get("/analytics/stats", tags=["Analytics"], summary="Statistiques du service IA (taux de résolution, satisfaction, transferts)")
 def get_analytics_stats(
     days: int = 30,
     current_user: str = Depends(get_current_user),

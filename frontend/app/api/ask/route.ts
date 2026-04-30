@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    const backendUrl = `${API_URL.replace(/\/$/, "")}/ask/stream`;
+    const backendUrl = `${API_URL.replace(/\/$/, "")}/v1/ask/stream`;
 
     const cookie = request.headers.get("cookie") || "";
 

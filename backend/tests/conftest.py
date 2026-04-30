@@ -87,14 +87,14 @@ def registered_user(client):
         "prenom": "Fixture",
         "nom": "User",
     }
-    client.post("/register", json=payload)
+    client.post("/v1/register", json=payload)
     return payload
 
 
 @pytest.fixture
 def auth_client(client, registered_user):
     """Returns a TestClient with a valid JWT token already set."""
-    resp = client.post("/login", json={
+    resp = client.post("/v1/login", json={
         "email": registered_user["email"],
         "password": registered_user["password"],
     })

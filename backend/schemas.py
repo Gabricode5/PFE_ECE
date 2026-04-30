@@ -1,6 +1,6 @@
 #C'est la structure des données qui circulent (la validation Pydantic).
 
-from pydantic import BaseModel, EmailStr, HttpUrl
+from pydantic import BaseModel, EmailStr, HttpUrl, Field
 from datetime import datetime
 from typing import Optional
 
@@ -156,6 +156,6 @@ class MePasswordUpdateRequest(BaseModel):
 
 
 class AskRequest(BaseModel):
-    question: str
-    session_id: int
-    mode: str = "rag_llm"
+    question: str = Field(..., description="Question envoyée au modèle Mistral AI")
+    session_id: int = Field(..., description="ID de la session de chat active")
+    mode: str = Field("rag_llm", description="rag_llm = RAG + génération LLM (défaut) ; rag_only = contexte brut sans génération")
