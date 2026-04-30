@@ -1,5 +1,5 @@
-"""Unit tests for pure utility functions in main.py (no DB required)."""
-from main import sanitize_model_name, chunk_text, sanitize_text, build_rag_prompt
+"""Unit tests for pure utility functions (no DB required)."""
+from dependencies import sanitize_model_name, chunk_text, sanitize_text, build_rag_prompt
 
 
 class TestSanitizeModelName:
