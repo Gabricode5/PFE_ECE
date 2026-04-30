@@ -319,7 +319,7 @@ export default function AiAssistantPage() {
                 </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-6" aria-live="polite" aria-busy={isSending}>
                 {messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full max-w-2xl mx-auto space-y-10">
                         <div className="text-center space-y-4">
@@ -466,9 +466,13 @@ export default function AiAssistantPage() {
                                 <Sparkles className="h-3 w-3" /> Chiffrement actif
                             </Badge>
                         </div>
-                        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+                        {error ? <p className="text-sm text-red-600" role="alert">{error}</p> : null}
                         <form onSubmit={handleSend} className="relative group">
+                            <label htmlFor="chat-input" className="sr-only">
+                                {isClosed ? "Conversation clôturée" : isTransferred ? "Message à l'agent SAV" : "Question à l'assistant IA"}
+                            </label>
                             <Input
+                                id="chat-input"
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 disabled={isClosed || isSending}
