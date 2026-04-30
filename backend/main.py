@@ -124,6 +124,17 @@ from sqlalchemy import text as _text
 
 @app.on_event("startup")
 def run_migrations():
+    from database import Base
+    with _engine.connect() as conn:
+        conn.execute(_text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
+    Base.metadata.create_all(bind=_engine)
+    from database import SessionLocal as _SessionLocal
+    with _SessionLocal() as session:
+        for role_name in ["user", "ai", "sav", "admin"]:
+            if not session.query(models.Role).filter_by(nom_role=role_name).first():
+                session.add(models.Role(nom_role=role_name))
+        session.commit()
     with _engine.connect() as conn:
         conn.execute(_text(
             "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS feedback INTEGER"
@@ -176,10 +187,14 @@ def read_root():
 
 @router.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED, tags=["Authentification"], summary="Créer un compte utilisateur")
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # 1. Vérifier si l'email existe déjà
+    # 1. Vérifier si l'email ou le username existe déjà
     existing_user = db.query(models.Utilisateur).filter(models.Utilisateur.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Cet email est déjà utilisé.")
+
+    existing_username = db.query(models.Utilisateur).filter(models.Utilisateur.username == user.username).first()
+    if existing_username:
+        raise HTTPException(status_code=400, detail="Ce username est déjà utilisé.")
 
     # 2. Hacher le mot de passe
     hashed_password = pwd_context.hash(user.password)
@@ -781,8 +796,9 @@ def ingest_knowledge_base(
 
         def _run_ingest(job_id_value: str, url_value: str, category_value: str | None):
             logger.info("[ingest-url] job=%s url=%s category=%s — starting", job_id_value, url_value, category_value)
+            job_state = INGEST_JOBS[job_id_value]
             try:
-                result = ingest_to_postgres(url=url_value, category=category_value)
+                result = ingest_to_postgres(url=url_value, category=category_value, job_state=job_state)
                 INGEST_JOBS[job_id_value]["status"] = "completed"
                 INGEST_JOBS[job_id_value]["result"] = result
                 logger.info("[ingest-url] job=%s — completed: %s chunks inserted", job_id_value, result.get("inserted"))
@@ -813,6 +829,20 @@ def ingest_status(
     if job_id not in INGEST_JOBS:
         raise HTTPException(status_code=404, detail="Job introuvable")
     return INGEST_JOBS[job_id]
+
+
+@router.get("/knowledge-base/robots-check", tags=["Base de connaissances"], summary="Analyser le robots.txt et le sitemap d'un domaine")
+def robots_check(
+    url: str,
+    current_user: str = Depends(get_current_user),
+):
+    """Analyse robots.txt + sitemap d'un domaine et retourne les compteurs d'URLs autorisées/bloquées."""
+    from ingest_postgres import analyze_robots_and_sitemap
+    try:
+        result = analyze_robots_and_sitemap(url)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'analyse : {str(e)}")
 
 
 @router.get("/knowledge-base/sources", tags=["Base de connaissances"], summary="Lister les sources indexées")

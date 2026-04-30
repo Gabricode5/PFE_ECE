@@ -42,7 +42,11 @@ import {
     DatabaseZap,
     Cpu,
     Trash2,
+    ShieldCheck,
+    ShieldAlert,
+    Link as LinkIcon,
 } from "lucide-react"
+import { Progress } from "@/components/ui/progress"
 
 export default function KnowledgeBasePage() {
     const INGEST_POLL_FAST_MS = 5000
@@ -70,6 +74,13 @@ export default function KnowledgeBasePage() {
     const ingestPollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const ingestStartedAtRef = useRef<number | null>(null)
     const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+    type RobotsInfo = { robots_found: boolean; sitemap_found: boolean; total: number; allowed: number; blocked: number }
+    const [robotsInfo, setRobotsInfo] = useState<RobotsInfo | null>(null)
+    const [isCheckingRobots, setIsCheckingRobots] = useState(false)
+    const [robotsError, setRobotsError] = useState<string | null>(null)
+    const [urlsTotal, setUrlsTotal] = useState<number | null>(null)
+    const [urlsDone, setUrlsDone] = useState<number | null>(null)
 
     type KBSource = { source: string; category: string | null; chunks: number; date_creation: string | null }
     const [kbSources, setKbSources] = useState<KBSource[]>([])
@@ -125,11 +136,18 @@ export default function KnowledgeBasePage() {
                     return
                 }
                 const data = await response.json()
+
+                // Mise à jour de la progression en temps réel
+                if (typeof data.urls_total === "number") setUrlsTotal(data.urls_total)
+                if (typeof data.urls_done === "number") setUrlsDone(data.urls_done)
+
                 if (data.status === "completed") {
                     setIsIngesting(false)
                     setIsUploadingFile(false)
                     setIngestJobId(null)
                     ingestStartedAtRef.current = null
+                    setUrlsTotal(null)
+                    setUrlsDone(null)
                     if (data.result?.inserted === 0) {
                         setIngestError("Aucun contenu récupéré. Le site bloque peut-être le scraping ou utilise du contenu dynamique.")
                     } else {
@@ -145,6 +163,8 @@ export default function KnowledgeBasePage() {
                     setIsUploadingFile(false)
                     setIngestJobId(null)
                     ingestStartedAtRef.current = null
+                    setUrlsTotal(null)
+                    setUrlsDone(null)
                     setIngestError(data.error || "Erreur pendant l'indexation.")
                     return
                 }
@@ -173,6 +193,28 @@ export default function KnowledgeBasePage() {
             }
         }
     }, [ingestJobId, sourceUrl])
+
+    const handleCheckRobots = async () => {
+        if (!sourceUrl.trim()) return
+        setRobotsInfo(null)
+        setRobotsError(null)
+        setIsCheckingRobots(true)
+        try {
+            const res = await fetch(`/api/knowledge-base/robots-check?url=${encodeURIComponent(sourceUrl)}`, {
+                credentials: "include",
+            })
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}))
+                setRobotsError(data?.detail || "Impossible d'analyser le site.")
+                return
+            }
+            setRobotsInfo(await res.json())
+        } catch {
+            setRobotsError("Erreur réseau lors de l'analyse.")
+        } finally {
+            setIsCheckingRobots(false)
+        }
+    }
 
     const handleIngestUrl = async () => {
         setIngestMessage(null)
@@ -401,13 +443,86 @@ export default function KnowledgeBasePage() {
                             id="source-url"
                             placeholder="https://..."
                             value={sourceUrl}
-                            onChange={(e) => setSourceUrl(e.target.value)}
+                            onChange={(e) => { setSourceUrl(e.target.value); setRobotsInfo(null); setRobotsError(null) }}
                         />
+                        <Button
+                            variant="outline"
+                            onClick={handleCheckRobots}
+                            disabled={isCheckingRobots || !sourceUrl.trim()}
+                        >
+                            {isCheckingRobots
+                                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                : <ShieldCheck className="mr-2 h-4 w-4" />}
+                            {isCheckingRobots ? "Analyse..." : "Vérifier robots.txt"}
+                        </Button>
                         <Button onClick={handleIngestUrl} disabled={isIngesting || !sourceUrl.trim()}>
                             {isIngesting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             {isIngesting ? "Indexation..." : "Indexer URL"}
                         </Button>
                     </div>
+
+                    {/* Résultat robots.txt */}
+                    {robotsError && (
+                        <p className="text-sm text-red-600 flex items-center gap-1.5">
+                            <ShieldAlert className="h-4 w-4 flex-shrink-0" /> {robotsError}
+                        </p>
+                    )}
+                    {robotsInfo && (
+                        <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                            <div className="flex flex-wrap items-center gap-4 text-sm">
+                                <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                                    <LinkIcon className="h-4 w-4 text-slate-400" />
+                                    {robotsInfo.sitemap_found ? "Sitemap détecté" : "Pas de sitemap (URL unique)"}
+                                    {!robotsInfo.robots_found && <span className="text-xs text-muted-foreground ml-1">(robots.txt absent)</span>}
+                                </span>
+                                <span className="flex items-center gap-1 text-emerald-700 font-semibold">
+                                    <ShieldCheck className="h-4 w-4" />
+                                    {robotsInfo.allowed} URL{robotsInfo.allowed > 1 ? "s" : ""} autorisée{robotsInfo.allowed > 1 ? "s" : ""}
+                                </span>
+                                {robotsInfo.blocked > 0 && (
+                                    <span className="flex items-center gap-1 text-red-600 font-semibold">
+                                        <ShieldAlert className="h-4 w-4" />
+                                        {robotsInfo.blocked} bloquée{robotsInfo.blocked > 1 ? "s" : ""}
+                                    </span>
+                                )}
+                                <span className="text-muted-foreground text-xs">
+                                    ({robotsInfo.total} URL{robotsInfo.total > 1 ? "s" : ""} au total)
+                                </span>
+                            </div>
+                            {/* Barre proportionnelle autorisées / bloquées */}
+                            {robotsInfo.total > 0 && (
+                                <div className="space-y-1">
+                                    <Progress
+                                        value={(robotsInfo.allowed / robotsInfo.total) * 100}
+                                        className="h-2"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        {Math.round((robotsInfo.allowed / robotsInfo.total) * 100)}% des URLs sont accessibles au scraping
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Progression du scraping en temps réel */}
+                    {isIngesting && urlsTotal !== null && urlsTotal > 0 && (
+                        <div className="rounded-lg border bg-indigo-50/60 p-3 space-y-2">
+                            <div className="flex items-center justify-between text-sm font-medium text-indigo-800">
+                                <span className="flex items-center gap-1.5">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Scraping en cours
+                                </span>
+                                <span>
+                                    {urlsDone ?? 0} / {urlsTotal} URL{urlsTotal > 1 ? "s" : ""} scrapée{urlsTotal > 1 ? "s" : ""}
+                                </span>
+                            </div>
+                            <Progress
+                                value={urlsTotal > 0 ? ((urlsDone ?? 0) / urlsTotal) * 100 : 0}
+                                className="h-2"
+                            />
+                        </div>
+                    )}
+
                     {ingestMessage && <p className="text-sm text-green-600">{ingestMessage}</p>}
                     {ingestError && <p className="text-sm text-red-600">{ingestError}</p>}
                 </div>
