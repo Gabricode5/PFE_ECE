@@ -27,7 +27,7 @@ services:
         fromService:
           type: web
           name: pfe-ece-frontend
-          property: url
+          property: host
       - key: OLLAMA_MODEL
         value: llama3.2:1b
       - key: EMBED_MODEL
@@ -47,4 +47,4 @@ services:
         fromService:
           type: web
           name: pfe-ece-backend
-          property: url
+          property: host
