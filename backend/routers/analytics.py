@@ -12,6 +12,44 @@ router = APIRouter(tags=["Analytics"])
 REASON_LABELS = {"technique": "Technique", "complexe": "Complexe", "sensible": "Sensible", "autre": "Autre"}
 REASON_COLORS = {"technique": "#0ea5e9", "complexe": "#f59e0b", "sensible": "#ef4444", "autre": "#8b5cf6"}
 
+ALERT_THRESHOLDS = {
+    "resolution_rate_critical": 50.0,
+    "resolution_rate_warning": 70.0,
+    "satisfaction_critical": 2.0,
+    "satisfaction_warning": 3.0,
+    "transfer_rate_warning": 0.30,
+}
+
+
+def _compute_alerts(ai_resolution_rate: float, satisfaction_score: float | None, transferred_count: int, total_sessions: int) -> list[dict]:
+    alerts = []
+    if total_sessions > 0:
+        if ai_resolution_rate < ALERT_THRESHOLDS["resolution_rate_critical"]:
+            alerts.append({"level": "critical", "metric": "ai_resolution_rate",
+                           "message": f"Taux de résolution IA critique : {ai_resolution_rate}%",
+                           "value": ai_resolution_rate, "threshold": ALERT_THRESHOLDS["resolution_rate_critical"]})
+        elif ai_resolution_rate < ALERT_THRESHOLDS["resolution_rate_warning"]:
+            alerts.append({"level": "warning", "metric": "ai_resolution_rate",
+                           "message": f"Taux de résolution IA en baisse : {ai_resolution_rate}%",
+                           "value": ai_resolution_rate, "threshold": ALERT_THRESHOLDS["resolution_rate_warning"]})
+
+        transfer_rate = transferred_count / total_sessions
+        if transfer_rate >= ALERT_THRESHOLDS["transfer_rate_warning"]:
+            alerts.append({"level": "warning", "metric": "transfer_rate",
+                           "message": f"Taux de transfert élevé : {round(transfer_rate * 100, 1)}% des sessions",
+                           "value": round(transfer_rate * 100, 1), "threshold": round(ALERT_THRESHOLDS["transfer_rate_warning"] * 100)})
+
+    if satisfaction_score is not None:
+        if satisfaction_score < ALERT_THRESHOLDS["satisfaction_critical"]:
+            alerts.append({"level": "critical", "metric": "satisfaction_score",
+                           "message": f"Score de satisfaction critique : {satisfaction_score}/5",
+                           "value": satisfaction_score, "threshold": ALERT_THRESHOLDS["satisfaction_critical"]})
+        elif satisfaction_score < ALERT_THRESHOLDS["satisfaction_warning"]:
+            alerts.append({"level": "warning", "metric": "satisfaction_score",
+                           "message": f"Score de satisfaction bas : {satisfaction_score}/5",
+                           "value": satisfaction_score, "threshold": ALERT_THRESHOLDS["satisfaction_warning"]})
+    return alerts
+
 
 @router.get("/analytics/stats", summary="Statistiques du service IA (taux de résolution, satisfaction, transferts)")
 def get_analytics_stats(days: int = 30, current_user: str = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -58,6 +96,8 @@ def get_analytics_stats(days: int = 30, current_user: str = Depends(get_current_
         models.ChatSession.transfer_reason.isnot(None), models.ChatSession.date_creation >= from_date).group_by(models.ChatSession.transfer_reason).all()
     transfer_reasons = [{"name": REASON_LABELS.get(r, r), "value": cnt, "color": REASON_COLORS.get(r, "#94a3b8")} for r, cnt in reason_rows]
 
+    alerts = _compute_alerts(ai_resolution_rate, satisfaction_score, transferred_count, total_sessions)
+
     return {"total_sessions": total_sessions, "ai_resolution_rate": ai_resolution_rate, "transferred_count": transferred_count,
             "satisfaction_score": satisfaction_score, "daily_messages": list(day_map.values()),
-            "sav_agents": sav_agents, "transfer_reasons": transfer_reasons}
+            "sav_agents": sav_agents, "transfer_reasons": transfer_reasons, "alerts": alerts}

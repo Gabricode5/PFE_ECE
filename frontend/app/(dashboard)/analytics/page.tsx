@@ -24,6 +24,9 @@ import {
     Zap,
     Clock,
     Star,
+    AlertTriangle,
+    AlertCircle,
+    CheckCircle2,
 } from "lucide-react"
 
 
@@ -31,6 +34,14 @@ type DayEntry = { name: string; IA: number; Humain: number }
 type AgentEntry = { name: string; initials: string; conversations: number }
 
 type ReasonEntry = { name: string; value: number; color: string }
+
+type AlertEntry = {
+    level: "warning" | "critical"
+    metric: string
+    message: string
+    value: number
+    threshold: number
+}
 
 type AnalyticsData = {
     total_sessions: number
@@ -40,6 +51,7 @@ type AnalyticsData = {
     daily_messages: DayEntry[]
     sav_agents: AgentEntry[]
     transfer_reasons: ReasonEntry[]
+    alerts: AlertEntry[]
 }
 
 const PERIODS = [
@@ -98,6 +110,40 @@ export default function AnalyticsPage() {
             </div>
 
             <div className="p-8 space-y-8 max-w-7xl mx-auto w-full">
+
+                {/* Alert Banner */}
+                {!isLoading && data && (
+                    data.alerts?.length > 0 ? (
+                        <div className="space-y-2">
+                            {data.alerts.map((alert, i) => (
+                                <div
+                                    key={i}
+                                    className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${
+                                        alert.level === "critical"
+                                            ? "bg-red-50 border-red-200 text-red-800"
+                                            : "bg-amber-50 border-amber-200 text-amber-800"
+                                    }`}
+                                    role="alert"
+                                >
+                                    {alert.level === "critical"
+                                        ? <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                                        : <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                                    }
+                                    <div className="flex-1">
+                                        <span className="font-semibold capitalize">{alert.level === "critical" ? "Critique" : "Attention"} — </span>
+                                        {alert.message}
+                                        <span className="ml-2 text-xs opacity-70">(seuil : {alert.threshold}{alert.metric === "ai_resolution_rate" || alert.metric === "transfer_rate" ? "%" : "/5"})</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                            <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                            <span>Toutes les métriques IA sont dans les seuils normaux.</span>
+                        </div>
+                    )
+                )}
 
                 {/* KPI Metrics Grid */}
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
